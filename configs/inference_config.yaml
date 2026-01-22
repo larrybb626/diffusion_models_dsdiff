@@ -1,0 +1,31 @@
+# =========== normal setting ===========
+net_mode: ds_diff   # 小帅哥记得修改噢
+Task_name: CE_MRI_synthesis
+Task_id: 157
+cuda_idx: 0
+fold_K: 5
+fold_idx: 1
+vae_local_pretrained: False
+# =========== test setting ===========
+use_prostate_mask: False
+ckpt_name: 'checkpoint' # best checkpoint
+test_num:
+test_batch_size: 48
+dataset_type: normal
+sampler_setting:
+  sampler: "ddim"
+  ddim_use_original_steps: False
+  sample_steps: 20
+  ddim_eta: 0
+# path
+dir_prefix: '/home/user4/sharedata/'
+result_path: 'newnas_1/MJY_file/diffusion/train_result/'
+filepath_img: 'newnas/MJY_file/CE-MRI/PCa_new/CE-MRI-PCa-new-pre-320320-01norm'
+h5_2d_img_dir: 'newnas/MJY_file/CE-MRI/PCa_new/h5_data_2d_pre_320320_01norm'
+image_size: 320   #no use
+# =========== optim setting ============
+seed: 2024
+# ============= never touched config ===============
+mode: test
+
+

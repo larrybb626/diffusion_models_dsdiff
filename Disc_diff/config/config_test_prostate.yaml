@@ -1,0 +1,43 @@
+attention_resolutions: 32,16,8
+base_samples: ''
+batch_size: 1
+clip_denoised: true
+data_dir: ''
+diffusion_steps: 1000
+dropout: 0.0
+ce_data_dir: /home/user4/sharedata/newnas_1/MJY_file/Prostate_dataset/test_ce_data.npy
+t1_data_dir: /home/user4/sharedata/newnas_1/MJY_file/Prostate_dataset/test_t1_data.npy
+t2_data_dir: /home/user4/sharedata/newnas_1/MJY_file/Prostate_dataset/test_t2_data.npy
+#data_config:
+#  { "K": 5,
+#    "random_state": 2024,
+#    "train_dir": "/home/user4/sharedata/newnas_1/MJY_file/Prostate_dataset/",
+#    "fold": 1 }
+data_config:
+  { "K": 5,
+    "random_state": 2024,
+    "train_dir": "/home/user4/sharedata/newnas/MJY_file/CE-MRI/PCa_new/CE-MRI-PCa-new-pre-320320-01norm/images_ts",
+    "fold": 1 }
+image_size: 320
+in_channel: 1
+learn_sigma: true
+model_path: /home/user4/sharedata/newnas_1/MJY_file/SOTA_models/DiscDiff/Prostate_v_predict_7e4/model060000.pt
+noise_schedule: linear
+num_channels: 96
+num_head_channels: 48
+num_heads: 4
+num_heads_upsample: -1
+num_res_blocks: 2
+num_samples: 50000
+predict_xstart: false
+parameterization: "v"
+resblock_updown: true
+rescale_learned_sigmas: false
+rescale_timesteps: false
+sampling_method: ddim
+timestep_respacing: '20'
+use_checkpoint: false
+use_fp16: false
+use_kl: false
+use_scale_shift_norm: true
+itk_save_dir: /home/user4/sharedata/newnas_1/MJY_file/SOTA_models/DiscDiff_test/Prostate_v_predict_7e4/itk_save_dir

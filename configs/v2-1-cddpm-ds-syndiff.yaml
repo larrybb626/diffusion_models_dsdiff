@@ -1,0 +1,39 @@
+model:
+  base_learning_rate: 1.0e-04
+  target: ldm.models.diffusion.ddpm.ImageEmbeddingConditionedLatentDiffusion
+  params:
+    parameterization: "v"
+    beta_schedule: "linear"
+    linear_start: 0.0001 # 0.000001 最开始；0.0001 多数文献
+    linear_end: 0.02 # 0.01 最开始；0.02 多数文献
+    log_every_t: 200
+    timesteps: 2000
+    first_stage_key: "jpg"
+    image_size: 320
+    channels: 1
+    conditioning_key: "concat"
+    loss_type: "charbonnie"
+    monitor: val/loss_simple_ema
+    use_ema: False
+
+    unet_config:
+      target: UNet_DS_Diff.model.DSUnetModel
+      params:
+        num_classes: null
+        adm_in_channels: 2048  #classifier guidance
+        use_checkpoint: True
+        image_size: 32 # unused
+        in_channels: 1
+        out_channels: 1
+        model_channels: 64
+        attention_resolutions: [16]
+        num_res_blocks: 2
+        channel_mult: [ 1, 1, 2 ,2, 4, 4]
+        num_head_channels: 32 # need to fix for flash-attn
+        use_new_attention_order: True # less memory usage
+        use_spatial_transformer: False
+        use_linear_in_transformer: True
+        transformer_depth: 1
+        context_dim: null
+        legacy: False
+

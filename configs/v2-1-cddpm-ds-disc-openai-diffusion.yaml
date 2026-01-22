@@ -1,0 +1,74 @@
+model:
+  base_learning_rate: 1.0e-04
+  target: ldm.models.diffusion.ddpm.ImageEmbeddingConditionedLatentDiffusion
+  params:
+    parameterization: "v"
+    beta_schedule: "linear"
+    linear_start: 0.0001 # 0.000001 最开始；0.0001 多数文献
+    linear_end: 0.02 # 0.01 最开始；0.02 多数文献
+    log_every_t: 200
+#    timesteps: 2000 #no use
+    first_stage_key: "jpg"
+    channels: 1
+    conditioning_key: "concat"
+    loss_type: "charbonnie"
+    monitor: val/loss_simple_ema
+    use_ema: False
+    data_dir: ''
+    diffusion_steps: 1000
+    dropout: 0.0
+    ema_rate: '0.9999'
+    fp16_scale_growth: 0.001
+    in_channel: 1
+    learn_sigma: true
+    log_interval: 10
+    lr: 0.0001
+    lr_anneal_steps: 0
+    microbatch: -1
+    noise_schedule: linear
+    predict_xstart: false
+    resblock_updown: true
+    rescale_learned_sigmas: false
+    rescale_timesteps: false  # fuck you mother fucker
+    resume_checkpoint: ''
+    save_interval: 10000
+    schedule_sampler: uniform
+    timestep_respacing: ''
+    use_checkpoint: false
+    use_fp16: false
+    use_kl: false
+    use_scale_shift_norm: true
+    weight_decay: 0.0
+    clip_denoised: True
+
+    unet_config:
+      target: UNet_DS_Diff.model.DSUnetModel
+      params:
+        num_classes: null
+        adm_in_channels: 2048  #classifier guidance
+        use_checkpoint: True
+        image_size: 320 # unused
+        in_channels: 1
+        out_channels: 1
+        model_channels: 96
+        attention_resolutions: [32,16,8]
+        num_res_blocks: 2
+        channel_mult: [1, 1, 2, 2, 3, 3]
+        num_head_channels: 48 # need to fix for flash-attn
+        use_new_attention_order: True # less memory usage
+        use_spatial_transformer: False
+        use_linear_in_transformer: True
+        use_scale_shift_norm: True
+        resblock_updown: True
+        transformer_depth: 2
+        context_dim: null
+        legacy: False
+        use_edge: False
+
+    ViT_config:
+      target: UNet_DS_Diff.DiT_models.DiT_B_8
+      params:
+        num_classes: 1000
+        input_size: 192
+        in_channels: 4
+

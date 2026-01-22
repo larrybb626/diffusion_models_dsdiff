@@ -1,0 +1,99 @@
+import os.path
+import re
+import sys
+
+import lightning.pytorch as pl
+import torch
+from lightning.pytorch import seed_everything
+from monai.utils import set_determinism
+from omegaconf import OmegaConf
+
+from inference import get_metric_rm
+from trainers.trainer_ddpm import DDPMModel
+from trainers.trainer_diffusion import DiffusionModel
+from trainers.trainer_use_gaussian_diff import TryTrainerDiffusion
+
+if __name__ == "__main__":
+    torch.set_float32_matmul_precision('high')
+    config = OmegaConf.load("../configs/inference_config.yaml")
+    torch.multiprocessing.set_sharing_strategy('file_system')
+    set_determinism(config["seed"])
+    seed_everything(config["seed"], workers=True)
+    # ==========path============
+    Task_name = config.Task_name
+    task_id = config.Task_id
+    fold_idx = config.fold_idx
+    ckpt_name = config.ckpt_name
+    dir_prefix = sys.argv[0].split("/newnas")[0]
+    config.result_path = os.path.join(dir_prefix, config.result_path)
+    # ===============model setting==============
+    task_name = "{}_{}_{}_fold5-{}".format(Task_name, task_id, config.net_mode, fold_idx)
+    result_path = config.result_path
+    # ================search for best==============================
+    ckpt_dir = os.path.join(result_path, task_name, "checkpoint")
+    ckpt_list = os.listdir(ckpt_dir)
+    if ckpt_name == "best":
+        pattern = r"{}(-epoch=\d+)?\.ckpt".format(ckpt_name)
+        ckpt_file = [file for file in ckpt_list if re.match(pattern, file)]
+        versions = [re.search(r"epoch=(\d+)", file).group(1) for file in ckpt_file if re.search(r"epoch=\d+", file)]
+        sorted_versions = sorted(versions, key=lambda x: int(x))
+        ckpt_to_resume = f"{ckpt_name.split('.')[0]}-epoch={sorted_versions[-1]}.ckpt" if sorted_versions else ckpt_name
+    else:
+        pattern = r"{}(-v\d+)?\.ckpt".format(ckpt_name)
+        ckpt_file = [file for file in ckpt_list if re.match(pattern, file)]
+        versions = [re.search(r"v(\d+)", file).group(1) for file in ckpt_file if re.search(r"v\d+", file)]
+        sorted_versions = sorted(versions, key=lambda x: int(x))
+        ckpt_to_resume = f"{ckpt_name}-v{sorted_versions[-1]}.ckpt" if sorted_versions else ckpt_name + ".ckpt"
+
+    ckpt_path = os.path.join(ckpt_dir, ckpt_to_resume)
+    print(ckpt_to_resume)
+    if config.net_mode == "diffusion":
+        model = DiffusionModel.load_from_checkpoint(ckpt_path)
+    elif config.net_mode == "ddpm":
+        model = DDPMModel.load_from_checkpoint(ckpt_path,
+                                               # map_location={"cuda:1":"cuda:0"}
+                                               )
+    elif config.net_mode == "ds_diff":
+        model = TryTrainerDiffusion.load_from_checkpoint(ckpt_path,
+                                                         map_location="cuda:{}".format(int(config.cuda_idx))
+                                                         )
+    model.pred_result_dir = os.path.join(dir_prefix, "newnas_1", model.pred_result_dir.split('newnas_1/')[-1] + "_rm_" +
+                                         f"{config.sampler_setting.sampler}_{config.sampler_setting.sample_steps}_" +
+                                         f"eta{config.sampler_setting.ddim_eta}_{ckpt_name.split('.')[0]}")
+    model.sampler_setting = config.sampler_setting
+    model.test_batch_size = config.test_batch_size
+    model.test_num = config.test_num
+    model.dataset_type = 'normal'
+    model.test_dir = model.test_dir + "_rm"
+    model.template_dir = model.template_dir + "_rm"
+    if not os.path.exists(model.pred_result_dir):
+        os.makedirs(model.pred_result_dir)
+    # ===============以防万一地址变动================
+    if dir_prefix != model.data_dir.split("/newnas")[0]:
+        prefix_len = len(model.data_dir.split("newnas")[0])
+        # root_dir = os.path.join(dir_prefix,"newnas_1/MJY_file/CE-MRI/train_result/", task_name)
+        model.data_dir = os.path.join(dir_prefix, model.data_dir[prefix_len:])
+        model.train_dir = os.path.join(dir_prefix, model.train_dir[prefix_len:])
+        model.val_dir = os.path.join(dir_prefix, model.val_dir[prefix_len:])
+        model.test_dir = os.path.join(dir_prefix, model.test_dir[prefix_len:])
+        model.template_dir = os.path.join(dir_prefix, config.filepath_img)
+        model.result_dir = os.path.join(dir_prefix, model.result_dir[prefix_len:])
+        model.record_file = os.path.join(dir_prefix, model.record_file[prefix_len:])
+    # model.num_workers = 0
+    # ================cuda================
+    # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    # os.environ["CUDA_VISIBLE_DEVICES"] = str(config.cuda_idx)
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # ==========PL MODEL============
+    # model = torch.compile(model)
+    torch.set_float32_matmul_precision('high')
+    print("========================{}==========================".format(task_name))
+    trainer = pl.Trainer(
+        accelerator='gpu',
+        devices=[config.cuda_idx],
+        enable_progress_bar=False,
+        # limit_predict_batches=2
+    )
+    predictions = trainer.predict(model)
+    print('get metric')
+    get_metric_rm.main(config)

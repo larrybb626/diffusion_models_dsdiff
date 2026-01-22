@@ -1,0 +1,1 @@
+nnUNetv2_predict -i /data/newnas_1/MJY_file/BraTS_dataset_Seg/ResViT -o /data/newnas_1/MJY_file/BraTS_dataset_Seg_result_2d/ResViT -d 507 -c 2d -f all

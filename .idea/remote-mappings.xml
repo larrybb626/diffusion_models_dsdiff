@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="RemoteMappingsManager">
+    <list>
+      <list>
+        <remote-mappings server-id="python@352e9a2b-a2c2-4d72-b954-1778f788b923" />
+        <remote-mappings server-id="python@sftp://ubuntu@172.21.141.38:60004/home/ubuntu/miniconda3/envs/mjy_310/bin/python3.10" />
+        <remote-mappings server-id="python@sftp://ubuntu@172.21.141.38:60015/home/ubuntu/miniconda3/envs/mjy_l/bin/python3.8" />
+        <remote-mappings server-id="python@sftp://medai05@172.21.141.36:22/home/medai05/anaconda3/envs/mjy_pl/bin/python3.8" />
+      </list>
+    </list>
+  </component>
+</project>
