@@ -38,14 +38,6 @@ def main(config=None):
     pred_dir = os.path.join(result_path, task_name, "pred_nii_" +
                             f"{config.sampler_setting.sampler}_{config.sampler_setting.sample_steps}_" +
                             f"eta{config.sampler_setting.ddim_eta}_{ckpt_name}")
-    # pred_dir = os.path.join("/home/user4/sharedata/newnas_1/MJY_file/SOTA_models/DiscDiff_test/Prostate_v_predict_7e4/itk_save_dir","")
-    # pred_dir = os.path.join(
-    #     "/data/newnas_1/MJY_file/SOTA_models/SOTA_GAN/ResVit_all_Seq_noval_new_pretrain/result", "")
-    # pred_dir = os.path.join('/data/newnas_1/MJY_file/SOTA_models/DiT_test/029-DiT-XL-2/dpm20/itk_result','')
-    # pred_dir = os.path.join('/home/user4/sharedata/newnas_1/MJY_file/SOTA_models/controlnet-model/controlnet_result/checkpoint-50000/itk_result', '')
-    # pred_dir = os.path.join('/home/user4/sharedata/newnas_1/MJY_file/SOTA_models/SA-GAN/experiment_1/itk_result', '')
-    # pred_dir = os.path.join('/home/user4/sharedata/newnas_1/MJY_file/SOTA_models/FGDM/result/itk_result','')
-    # pred_dir = os.path.join('/data/newnas_1/MJY_file/SOTA_models/mulD_RegGAN/CE_MRI_simulate_PCa_63_pix2pix_mulD_fold5-1/pred_nii')
     excel_save_dir = pred_dir + "_metric.xlsx"
     print("====================={}=======================".format(pred_dir))
     # ============================================

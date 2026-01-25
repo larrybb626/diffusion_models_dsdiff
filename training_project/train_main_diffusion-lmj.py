@@ -1,60 +1,81 @@
 import os
-import re
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import lightning.pytorch as pl
-import lightning as l
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
+sys.path.append(project_root)
 import torch
-from lightning.pytorch import seed_everything
-from lightning.pytorch.callbacks import ModelCheckpoint
-from lightning.pytorch.profilers import AdvancedProfiler
-from monai.utils import set_determinism
-from omegaconf import OmegaConf
-from core.JY_Network import JunyangFramework
-from configs.train_config import config
-from trainers.trainer_ds_diff import DSDiffModel
+import yaml
+# from configs.train_config import config
 
-# ==================== GPU 内存优化 ====================
-# 解决 CUDA 内存碎片化问题
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
+# # 加载配置文件
+# config_path = '/home/ubuntu/linmingjie/Wu_data/code/dsfr_diffusion_structure_feature_reconstruction/configs/train_config.yaml'
+# with open(config_path, 'r') as file:
+#     config = yaml.safe_load(file)
+
+
+
+
+from monai.utils import set_determinism
+from trainers.trainer_diffusion import DiffusionModel
+
+from training_project.utils.My_callback import CheckPointSavingMetric
+
+from lightning.pytorch.callbacks import ModelCheckpoint, RichProgressBar, TQDMProgressBar
+from lightning.pytorch.callbacks.progress.rich_progress import RichProgressBarTheme
+from lightning.pytorch import seed_everything
+from lightning.pytorch.profilers import AdvancedProfiler
+import lightning.pytorch as pl
+import re
 
 if __name__ == "__main__":
-    # print("Please enter the password:")
-    # password = input()
-    Junyang = JunyangFramework("Junyang is the best!")  # enter your password
-    config = Junyang.get_config(OmegaConf.load(config.config_file))
-    assert config.net_mode == "ds_diff" # only support ds_diff
+# 设置pytorch多进程处理的一些配置
     torch.multiprocessing.set_sharing_strategy('file_system')
-    set_determinism(config.seed)
-    seed_everything(config.seed, workers=True)
+    seed = 2024
+    set_determinism(seed)
+    seed_everything(seed, workers=True)
+    torch.set_float32_matmul_precision('high')
+
+     # 数据导入
+    root_dir = r'/home/ubuntu/linmingjie/Wu_data'
+    train_dir = r'/home/ubuntu/linmingjie/Wu_data/HDF5_T1_train_Data_Sorted'  # 大训练集路径  Y:\newnas_1\huyilan202124\Wu_data\Data_Sorted1\Data_sorted_HDF5
+    checkpoint_dir = r'/home/ubuntu/linmingjie/Wu_data/checkpoints'
+
+    def get_config(config):
+        with open(config, 'r') as stream:
+            return yaml.load(stream, Loader=yaml.FullLoader)
+    
+    config_path = '/home/ubuntu/linmingjie/Wu_data/code/dsfr_diffusion_structure_feature_reconstruction/configs/train_config.yaml'
+    config = get_config(config_path)
+
 
     # # 设置好路径
     # dir_prefix = sys.argv[0].split("/newnas")[0]
     # config.filepath_img = os.path.join(dir_prefix, config.filepath_img)
+    # config.h5_3d_img_dir = os.path.join(dir_prefix, config.h5_3d_img_dir)
     # config.h5_2d_img_dir = os.path.join(dir_prefix, config.h5_2d_img_dir)
-    # config.result_path = os.path.join(dir_prefix, config.result_path)
-
+    # config.filepath_mask = os.path.join(dir_prefix, config.filepath_mask)
+    # config.result_path = os.path.join(dir_prefix,config.result_path)
     # 设置任务名和对应的路径
     # CE_MRI_simulate_1_2d_fold5-1
-    task_name = config.Task_name + '_' + str(config.Task_id) + '_' + config.net_mode + '_fold' + str(
-        config.fold_K) + "-" + str(config.fold_idx)
-    print("===================={}=====================".format(task_name))
-    root_dir = os.path.join(config.result_path, task_name)
-    config.root_dir = os.path.join(config.result_path, task_name)
+    # task_name = config.Task_name + '_' + config.Task_id + '_' + config.net_mode + '_fold' + str(
+    #     config.fold_K) + "-" + str(
+    #     config.fold_idx)
+    # print("===================={}=====================".format(task_name))
+    # root_dir = os.path.join(config.result_path, task_name)
+    # config.root_dir = os.path.join(config.result_path, task_name)
     # config.record_file = os.path.join(config.root_dir, "log_txt.txt")
     # ===============================set up GPU======================================================
     # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     # os.environ["CUDA_VISIBLE_DEVICES"] = str(config.cuda_idx)
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    torch.set_float32_matmul_precision('high')
     # =====================================set up loggers and checkpoints======================================================
     log_dir = os.path.join(root_dir, "logs")
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
     tb_logger = pl.loggers.TensorBoardLogger(save_dir=log_dir)
-    # tensorboard --logdir = log_dir
+    #tensorboard --logdir = log_dir
     # ===================================callback======================================================
-    ckpt_dir = os.path.join(root_dir, "checkpoint")
+    ckpt_dir = os.path.join(checkpoint_dir, "checkpoints_20250310")
     loss_callback = ModelCheckpoint(
         dirpath=ckpt_dir,
         filename="val_loss_best",
@@ -67,39 +88,39 @@ if __name__ == "__main__":
     best_callback = ModelCheckpoint(
         dirpath=ckpt_dir,
         filename="best-{epoch}",
-        monitor='val/ssim',
+        monitor='val_ssim',
         mode="max",
         save_last=False,
-        save_top_k=1,
+        save_top_k=2,
         save_weights_only=True,
     )
     checkpoint_callback = ModelCheckpoint(
         dirpath=ckpt_dir,
-        filename="checkpoint",
-        every_n_epochs=config.checkpoint_epoch,
+        filename="checkpoints_callback",
+        every_n_epochs = config.checkpoint_epoch,
         save_on_train_epoch_end=True
     )
-    # ================================== config opt ====================================================================
-    config_opt = OmegaConf.load(config.config_opt)["model"]["params"]
-    input_channels = min((len(config.train_keys) + 1) ,config_opt.unet_config.params.in_channels)
-    output_channels = 1
-    config_opt["unet_config"]["params"]["in_channels"] = input_channels
-    config_opt["unet_config"]["params"]["out_channels"] = output_channels
-    # config.embedder_config = config_opt["model"]["params"].pop("embedder_config",None)
+    ckpt_save_metric = CheckPointSavingMetric()
+    progress_bar = RichProgressBar(
+        theme=RichProgressBarTheme(
+            description="green_yellow",
+            progress_bar="green1",
+            progress_bar_finished="green1",
+            progress_bar_pulse="#6206E0",
+            batch_progress="green_yellow",
+            time="grey82",
+            processing_speed="grey82",
+            metrics="grey82",
+        )
+    )
+
     # =================================initialise Lightning's trainer.======================================================
     profiler = AdvancedProfiler(dirpath=root_dir, filename="perf_logs")
-    
-    # 打印可用GPU信息用于调试
-    print(f"可用GPU数: {torch.cuda.device_count()}")
-    print(f"配置使用GPU: {config.cuda_idx}")
-    
     trainer = pl.Trainer(
         # default_root_dir=root_dir,
-        # strategy="ddp",
         accelerator='gpu',
-        devices=list(config.cuda_idx),
+        devices=[config.cuda_idx],
         max_epochs=config.num_epochs,
-        # max_epochs=1,
         check_val_every_n_epoch=config.val_step,
         logger=tb_logger,
         enable_checkpointing=True,
@@ -108,16 +129,18 @@ if __name__ == "__main__":
         deterministic="warn",
         enable_progress_bar=False,
         # =====dev option=====
-        # precision="bf16-mixed",
         num_sanity_val_steps=0,
         # fast_dev_run=1,
-        # limit_train_batches=4,
-        limit_val_batches=8,
+        # limit_train_batches=1,
+        limit_val_batches=4,
         # limit_train_batches=300,
-        # profiler="simple",
+        # profiler=profiler,
     )
-    # ===================configure net===================================
-    unet = Junyang.get_model(DSDiffModel(config, **config_opt))
+    # ===================configurate net===================================
+    if config.net_mode == "diffusion":
+        unet = DiffusionModel(config)
+    else:
+        raise "No such net_mode"
     # ========================search for ckpt==============================
     if not os.path.exists(ckpt_dir):
         os.makedirs(ckpt_dir)
@@ -127,6 +150,7 @@ if __name__ == "__main__":
     # 新训练
     if not ckpt_file:
         print("========== No checkpoint to resume, start a new train ==========")
+
         trainer.fit(unet)
     # 断点恢复
     else:

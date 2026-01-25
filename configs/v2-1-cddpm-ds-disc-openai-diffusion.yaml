@@ -59,7 +59,6 @@ model:
         use_spatial_transformer: False
         use_linear_in_transformer: True
         use_scale_shift_norm: True
-        resblock_updown: True
         transformer_depth: 2
         context_dim: null
         legacy: False

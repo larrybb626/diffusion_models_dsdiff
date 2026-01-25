@@ -11,7 +11,7 @@ import yaml
 from torch.utils.data import DataLoader
 
 from Disc_diff.guided_diffusion import dist_util, logger
-from Disc_diff.guided_diffusion.image_datasets import load_data, dataset_config, ProstateMRI, BraTSdataMRI
+from Disc_diff.guided_diffusion.image_datasets import load_data, dataset_config, ProstateMRI, BraTSMRI
 from Disc_diff.guided_diffusion.script_util import (
     sr_create_model_and_diffusion,
     add_dict_to_argparser,
@@ -23,7 +23,7 @@ def main():
     args = create_argparser().parse_args()
     dist_util.setup_dist()
     print(args)
-    logger.configure(dir="/home/user15/sharedata/newnas_1/MJY_file/SOTA_models/DiscDiff_test/BraTS_v_predict_7e4/")
+    logger.configure(dir="/home/user4/sharedata/newnas_1/MJY_file/SOTA_models/DiscDiff_test/Prostate_v_predict_7e4/")
 
     logger.log("creating model...")
     model, diffusion = sr_create_model_and_diffusion(args)
@@ -50,8 +50,8 @@ def main():
     # )
     data_config = dataset_config(mode="test", **args.data_config)
     # prostate_dataset = load_prostate_data(data_config)
-    # prostate_dataset = ProstateMRI(data_config)
-    prostate_dataset = BraTSdataMRI(data_config)
+    prostate_dataset = ProstateMRI(data_config)
+    # prostate_dataset = BraTSMRI(data_config)
     data = load_pro_data(prostate_dataset, args.batch_size)
     logger.log("creating samples...")
 
@@ -154,7 +154,7 @@ def load_pro_data(prostate_data, batch_size):
 def create_argparser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", help="Path to YAML configuration file",
-                        default="../config/config_test_brats.yaml")
+                        default="../config/config_test_prostate.yaml")
     args = parser.parse_args()
 
     with open(args.config, "r") as file:

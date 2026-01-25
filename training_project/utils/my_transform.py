@@ -33,7 +33,9 @@ class GetEdgeMap(MapTransform):
 
     def __call__(self, data):
         d = dict(data)
-        index_list = [0,1,2]  # 0 T1  1 T2  2 DWI
+        # index_list = [0,1,2]  # 0 T1  1 T2  2 DWI
+        # all_to_edge = d[self.keys[0]][index_list]
+        index_list = [0]  # 0 T1  1 T2  2 DWI
         all_to_edge = d[self.keys[0]][index_list]
         if isinstance(all_to_edge, torch.Tensor):
             all_to_edge = all_to_edge.numpy()
@@ -49,7 +51,7 @@ class GetEdgeMap(MapTransform):
                     nplabs = nplabs.numpy()
                 # 从-1~1回退到0-255
                 nplabs = (nplabs + 1) * 255 / 2
-                nplabs = cv2.bilateralFilter(nplabs, 10, bilateralFilter_random_c, bilateralFilter_random_s)
+                nplabs = cv2.bilateralFilter(np.uint8(nplabs), 10, bilateralFilter_random_c, bilateralFilter_random_s)
                 nplabs = np.uint8(nplabs)
 
                 x = cv2.Sobel(nplabs, cv2.CV_16S, 1, 0)
@@ -67,7 +69,7 @@ class GetEdgeMap(MapTransform):
             # plot_images(all_edge, ["T1", "T2", "DWI"])
             # d['edge'] = np.stack(all_edge, axis=0).astype(np.float32)
             nplabs = np.max(all_edge, axis=0)
-            d['edge'] = torch.tensor(nplabs[None, :].astype(np.float32))
+            d['edge'] = nplabs[None, :].astype(np.float32)
         elif self.type == 'canny':
             for inp in all_to_edge:
                 inp = np.uint8((inp + 1) * 255 / 2)
@@ -75,7 +77,7 @@ class GetEdgeMap(MapTransform):
                 nplabs = (nplabs - nplabs.min() + 1e-12) / (nplabs.max() - nplabs.min() + 1e-8)
                 all_edge.append(nplabs)
             nplabs = np.max(all_edge, axis=0)
-            d['edge'] = torch.tensor(nplabs[None, :].astype(np.float32))
+            d['edge'] = nplabs[None, :].astype(np.float32)
         elif self.type == 'laplacian':
             threshold_random = random.randint(10, 20)
             bilateralFilter_random_c = random.randint(40, 50)
@@ -98,7 +100,7 @@ class GetEdgeMap(MapTransform):
             # plot_images(all_edge, ["T1", "T2", "DWI"])
             # d['edge'] = np.stack(all_edge, axis=0).astype(np.float32)
             nplabs = np.max(all_edge, axis=0)
-            d['edge'] = torch.tensor(nplabs[None, :].astype(np.float32))
+            d['edge'] = nplabs[None, :].astype(np.float32)
         elif self.type == 'sobel&laplacian':
             threshold_random = random.randint(10, 20)
             bilateralFilter_random_c = random.randint(40, 50)
@@ -131,7 +133,7 @@ class GetEdgeMap(MapTransform):
             # plot_images(all_edge, ["T1", "T2", "DWI"])
             # d['edge'] = np.stack(all_edge, axis=0).astype(np.float32)
             nplabs = np.max(all_edge, axis=0)
-            d['edge'] = torch.tensor(nplabs[None, :].astype(np.float32))
+            d['edge'] = nplabs[None, :].astype(np.float32)
         else:
             raise ValueError(f"Invalid type: {self.type}")
         return d

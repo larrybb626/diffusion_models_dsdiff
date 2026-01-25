@@ -219,30 +219,65 @@ def get_2d_train_transform(keys, random_prob):
 
 def get_2d_train_transform_diff(keys, random_prob, use_edge=False):
     transforms_list = [
-            # 固定的transform
-            LoadH5(path_key="path", keys=keys + ["t1ce", "mask"]),
-            EnsureChannelFirstd(keys=keys + ["t1ce", "mask"], channel_dim="no_channel"),
-            # padding 到可被32整除
-            DivisiblePadd(keys=keys + ["t1ce", "mask"], k=32, mode="reflect"),
+            # # 固定的transform
+            # keys[0-T1,1-T1,  2-T1  ]
+            # LoadH5(path_key="path", keys=keys),
+            # EnsureChannelFirstd(keys=keys, channel_dim="no_channel"), 
+            # 
+            # 
+            # H5:[XX1,XX2,"PATH","t1ce", "mask"]
+            # train_config.yaml:train_key:[XX1,XX2]
+            # keys[XX1,XX2] + ["t1ce", "mask"]-->[XX1,XX2,"t1ce", "mask"]
+
+            # # padding 到可被32整除
+            # DivisiblePadd(keys=keys, k=32, mode="reflect"),
+
+            # # 拼接,keys变成image
+            # ConcatItemsd(keys=keys[:-1], name="image", dim=0),
+
+
+            # #随机旋转
+            # RandRotated(keys=["image", keys[-1]],       
+            #             range_x=30 * math.pi / 180,
+            #             range_y=30 * math.pi / 180,
+            #             prob=random_prob,
+            #             padding_mode="reflection",
+            #             mode=["bilinear", "bilinear", "nearest"]
+            #             ),
+            # # 随机翻转
+            # RandFlipd(
+            #     keys=["image", keys[-1]],
+            #     prob=random_prob,
+            #     spatial_axis=[0],
+            # ),
+            # RandFlipd(
+            #     keys=["image", keys[-1]],
+            #     spatial_axis=[1],
+            #     prob=random_prob,
+            # ),
+
+            LoadH5(path_key="path", keys=keys),
+            EnsureChannelFirstd(keys=keys, channel_dim="no_channel"),
+            DivisiblePadd(keys=keys, k=32, mode="reflect"),
             # 拼接,keys变成image
-            ConcatItemsd(keys=keys, name="image", dim=0),
-            ToTensord(keys=["image", "t1ce", "mask"]),
+            ConcatItemsd(keys=keys[:-1], name="image", dim=0),
+            ToTensord(keys=["image",keys[-1]]),
             # 随机旋转
-            RandRotated(keys=["image", "t1ce", "mask"],
+            RandRotated(keys=["image", keys[-1]],
                         range_x=30 * math.pi / 180,
                         range_y=30 * math.pi / 180,
                         prob=random_prob,
                         padding_mode="reflection",
-                        mode=["bilinear", "bilinear", "nearest"]
+                        mode=["bilinear", "bilinear"]
                         ),
             # 随机翻转
             RandFlipd(
-                keys=["image", "t1ce", "mask"],
+                keys=["image", keys[-1]],
                 prob=random_prob,
                 spatial_axis=[0],
             ),
             RandFlipd(
-                keys=["image", "t1ce", "mask"],
+                keys=["image", keys[-1]],
                 spatial_axis=[1],
                 prob=random_prob,
             ),
@@ -256,7 +291,7 @@ def get_2d_train_transform_diff(keys, random_prob, use_edge=False):
             # RandGaussianNoised(keys=["t1ce"], prob=0.1)
         ]
     if use_edge:
-        transforms_list.append(GetEdgeMap(keys="image", type=use_edge))
+        transforms_list.insert(-1, GetEdgeMap(keys="image", type=use_edge))
     train_transforms = Compose(transforms_list)
     return train_transforms
 
@@ -352,17 +387,26 @@ def get_2d_val_transform(keys):
 
 def get_2d_val_transform_diff(keys, use_edge=False):
     transforms_list = [
+            # # 固定的transform
+            # LoadH5(path_key="path", keys=keys + ["t1ce", "mask"]),
+            # EnsureChannelFirstd(keys=keys + ["t1ce", "mask"], channel_dim="no_channel"),
+            # # padding 到可被32整除
+            # DivisiblePadd(keys=keys + ["t1ce", "mask"], k=32),
+            # # 拼接,keys变成image
+            # ConcatItemsd(keys=keys, name="image", dim=0),
+            # ToTensord(keys=["image", "t1ce", "mask"]),
+
             # 固定的transform
-            LoadH5(path_key="path", keys=keys + ["t1ce", "mask"]),
-            EnsureChannelFirstd(keys=keys + ["t1ce", "mask"], channel_dim="no_channel"),
+            LoadH5(path_key="path", keys=keys),
+            EnsureChannelFirstd(keys=keys, channel_dim="no_channel"),
             # padding 到可被32整除
-            DivisiblePadd(keys=keys + ["t1ce", "mask"], k=32),
+            DivisiblePadd(keys=keys, k=32),
             # 拼接,keys变成image
-            ConcatItemsd(keys=keys, name="image", dim=0),
-            ToTensord(keys=["image", "t1ce", "mask"]),
+            ConcatItemsd(keys=keys[:-1], name="image", dim=0),
+            ToTensord(keys=["image", keys[-1]]),
         ]
     if use_edge:
-        transforms_list.append(GetEdgeMap(keys="image", type=use_edge))
+        transforms_list.insert(-1, GetEdgeMap(keys="image", type=use_edge))
     val_transforms = Compose(transforms_list)
     return val_transforms
 def get_2d_rgb_val_transform(keys):
@@ -399,17 +443,26 @@ def get_test_transforms(keys):
 
 def get_2d_test_transform(keys, use_edge=False):
     transforms_list = [
+        # # 固定的transform
+        # LoadH5(path_key="path", keys=keys + ["t1ce", "mask"]),
+        # EnsureChannelFirstd(keys=keys + ["t1ce", "mask"], channel_dim="no_channel"),
+        # # padding 到可被32整除
+        # # DivisiblePadd(keys=keys + ["t1ce", "mask"], k=32),
+        # # 拼接,keys变成image
+        # ConcatItemsd(keys=keys, name="image", dim=0),
+        # ToTensord(keys=["image", "t1ce", "mask"]),
+
         # 固定的transform
-        LoadH5(path_key="path", keys=keys + ["t1ce", "mask"]),
-        EnsureChannelFirstd(keys=keys + ["t1ce", "mask"], channel_dim="no_channel"),
+        LoadH5(path_key="path", keys=keys),
+        EnsureChannelFirstd(keys=keys, channel_dim="no_channel"),
         # padding 到可被32整除
         # DivisiblePadd(keys=keys + ["t1ce", "mask"], k=32),
         # 拼接,keys变成image
-        ConcatItemsd(keys=keys, name="image", dim=0),
-        ToTensord(keys=["image", "t1ce", "mask"]),
+        ConcatItemsd(keys=keys[:-1], name="image", dim=0),
+        ToTensord(keys=["image",keys[-1]]),
     ]
     if use_edge:
-        transforms_list.append(GetEdgeMap(keys="image", type=use_edge))
+        transforms_list.insert(-1, GetEdgeMap(keys="image", type=use_edge))
     val_transforms = Compose(transforms_list)
     return val_transforms
 

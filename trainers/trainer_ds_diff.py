@@ -115,9 +115,9 @@ class DSDiffModel(DDPM, pl.LightningModule):
         # =============================文件地址=======================================
         self.data_dir = config.h5_2d_img_dir
         self.train_dir = os.path.join(self.data_dir, "images_tr")
-        # self.val_dir = os.path.join(self.data_dir, "images_val") if self.config.data_name == 'BraTs' else self.train_dir
-        self.val_dir = self.train_dir
-        self.test_dir = os.path.join(self.data_dir, "images_ts")
+        self.val_dir = os.path.join(self.data_dir, "images_val") if self.config.data_name == 'BraTs' else self.train_dir
+        # self.val_dir = self.train_dir
+        self.test_dir = os.path.join(self.data_dir, "images_tr")  # 记得改回去ts
         self.template_dir = config.filepath_img
         self.result_dir = config.root_dir
         self.record_file = os.path.join(config.root_dir, "log_txt.txt")
@@ -130,11 +130,11 @@ class DSDiffModel(DDPM, pl.LightningModule):
         # prepare data
         # 根据dir 获取train：0 val：1
         print("preparing data with val")
-        # if self.config.data_name == 'BraTs':
-        #     datasets = (sorted(os.listdir(self.train_dir)), sorted(os.listdir(self.val_dir)))
-        #     self.print_to_txt(f'train_id:{len(datasets[0])}||valid_id:{len(datasets[1])}')
-        # else:
-        datasets = self.do_split(self.fold_K, self.fold_idx)
+        if self.config.data_name == 'BraTs':
+            datasets = (sorted(os.listdir(self.train_dir)), sorted(os.listdir(self.val_dir)))
+            self.print_to_txt(f'train_id:{len(datasets[0])}||valid_id:{len(datasets[1])}')
+        else:
+            datasets = self.do_split(self.fold_K, self.fold_idx)
         # datasets = self.do_split(self.fold_K, self.fold_idx)
         train_dict = self.get_data_dict(datasets[0], self.train_dir)
         print(len(train_dict), "train data")
@@ -202,10 +202,9 @@ class DSDiffModel(DDPM, pl.LightningModule):
             #     )
 
     def print_to_txt(self, *args):
-        print(*args)
-        f = open(self.record_file, 'a')
-        print(*args, file=f)
-        f.close()
+        print(*args)  # 打印到控制台
+        with open(self.record_file, 'a', encoding='utf-8') as f:  # 使用 utf-8 编码打开文件
+            print(*args, file=f)  # 写入文件
 
     def do_split(self, K, fold):
         """
@@ -515,7 +514,7 @@ class DSDiffModel(DDPM, pl.LightningModule):
         return x, cond
 
     def shared_step(self, batch):
-        x, c = self.get_input(batch, self.first_stage_key, cond_k="image")
+        x, c = self.get_input(batch, self.keys[-1], cond_k="image")
         loss, loss_dict = self(x, c_concat=[c])
         return loss, loss_dict
 
@@ -619,7 +618,7 @@ class DSDiffModel(DDPM, pl.LightningModule):
     def log_images(self, batch, N=8, n_row=2, sample=True, return_keys=None, sampler="ddim", pred_mode=False,
                    ddim_eta=0, **kwargs):
         log = dict()
-        x, c = self.get_input(batch, self.first_stage_key, cond_k="image")
+        x, c = self.get_input(batch, self.keys[-1], cond_k="image")
         N = min(x.shape[0], N)
         x = x.to(self.device)[:N]
         c = c.to(self.device)[:N]
@@ -646,8 +645,8 @@ class DSDiffModel(DDPM, pl.LightningModule):
                 for idx, img in enumerate(intermediates["x_inter"]):
                     intermediates["x_inter"][idx] = img[:int(0.25 * img.shape[0]), ...]
                 log["samples"] = samples
-                if not pred_mode:
-                    log["denoise_row"] = self._get_rows_from_list(intermediates["x_inter"])
+                # if not pred_mode:
+                #     log["denoise_row"] = self._get_rows_from_list(intermediates["x_inter"])
             else:
                 # get denoise row
                 # with self.ema_scope("Plotting"):
@@ -724,7 +723,8 @@ class DSDiffModel(DDPM, pl.LightningModule):
             return x_recon
 
     def validation_step(self, batch, batch_idx):
-        images, labels = (batch["image"], batch["t1ce"])
+
+        images, labels = (batch["image"], batch[self.keys[-1]])
 
         _, loss_dict_no_ema = self.shared_step(batch)
         # with self.ema_scope():
@@ -748,9 +748,9 @@ class DSDiffModel(DDPM, pl.LightningModule):
                 self.logger.experiment.add_image("real_img", _input, self.global_step + batch_idx + b,
                                                  dataformats="HWC")
 
-            _rec_img = tensor2im(log['denoise_row'].unsqueeze(0))
-            self.logger.experiment.add_image("reconstruction_img", _rec_img, self.global_step + batch_idx,
-                                             dataformats="HWC")
+            # _rec_img = tensor2im(log['denoise_row'].unsqueeze(0))
+            # self.logger.experiment.add_image("reconstruction_img", _rec_img, self.global_step + batch_idx,
+            #                                  dataformats="HWC")
             outputs = [i for i in decollate_batch(log["samples"])]
             labels = [i for i in decollate_batch(log['inputs'])]
             self.mae_metric(y_pred=outputs, y=labels)
@@ -759,8 +759,9 @@ class DSDiffModel(DDPM, pl.LightningModule):
         # self.validation_step_outputs.append({"val_number": len(outputs)})
 
     def on_validation_batch_end(self, outputs, batch, batch_idx, dataloader_idx: int = 0):
-        printProgressBar(batch_idx, len(self.val_dataloader()) - 1,
-                         content="{}/{} validation processing......".format(batch_idx + 1, len(self.val_dataloader())))
+        # printProgressBar(batch_idx, len(self.val_dataloader()) - 1,
+        #                  content="{}/{} validation processing......".format(batch_idx + 1, len(self.val_dataloader())))
+        pass
 
     def on_validation_epoch_end(self):
         val_loss, num_items, mean_val_ssim = 0, 0, 0
@@ -796,7 +797,7 @@ class DSDiffModel(DDPM, pl.LightningModule):
         # self.prepare_noise_schedule(phase="test")
 
     def predict_step(self, batch, batch_idx: int, dataloader_idx: int = 0):
-        path, images, labels = (batch["path"], batch["image"], batch["t1ce"])
+        path, images, labels = (batch["path"], batch["image"], batch[self.keys[-1]])
         id_num = [p.split("/")[-2] for p in path]
         slice_idx = [int(os.path.basename(p).split(".")[0].split("_")[-1]) for p in path]
         # roi_x = int(np.ceil(images.shape[2] / 32) * 32)

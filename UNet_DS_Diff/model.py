@@ -1,25 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-@Project ：diffusion_models
+@Project ：diffusion_models 
 @File    ：model.py
-@IDE     ：PyCharm
+@IDE     ：PyCharm 
 @Author  ：MJY
-@Date    ：2024/8/26 10:09
+@Date    ：2024/12/25 14:50 
 """
-from einops import rearrange
-
-# import torch.jit
-
 from Disc_diff.guided_diffusion.unet import SE_Attention
+
 
 """
 Using disentanglement and structure guided mechanism to improve image generation    
 """
 import copy
-import torch as th
+
+import torch as ht
 import torch.nn as nn
 import torch.nn.functional as F
-from ldm.modules.attention import SpatialTransformer
+from ldm.modules.attention import SpatialTransformer_fft
 from ldm.modules.diffusionmodules.openaimodel import (TimestepEmbedSequential,
                                                       Upsample,
                                                       Downsample,
@@ -66,9 +64,9 @@ def gaussian_weights_init(m):
 
 def spectral_norm(module, name='weight', n_power_iterations=1, eps=1e-12, dim=None):
     if dim is None:
-        if isinstance(module, (th.nn.ConvTranspose1d,
-                               th.nn.ConvTranspose2d,
-                               th.nn.ConvTranspose3d)):
+        if isinstance(module, (ht.nn.ConvTranspose1d,
+                               ht.nn.ConvTranspose2d,
+                               ht.nn.ConvTranspose3d)):
             dim = 1
         else:
             dim = 0
@@ -96,11 +94,11 @@ class SpectralNorm(object):
                                             *[d for d in range(weight_mat.dim()) if d != self.dim])
         height = weight_mat.size(0)
         weight_mat = weight_mat.reshape(height, -1)
-        with th.no_grad():
+        with ht.no_grad():
             for _ in range(self.n_power_iterations):
-                v = F.normalize(th.matmul(weight_mat.t(), u), dim=0, eps=self.eps)
-                u = F.normalize(th.matmul(weight_mat, v), dim=0, eps=self.eps)
-        sigma = th.dot(u, th.matmul(weight_mat, v))
+                v = F.normalize(ht.matmul(weight_mat.t(), u), dim=0, eps=self.eps)
+                u = F.normalize(ht.matmul(weight_mat, v), dim=0, eps=self.eps)
+        sigma = ht.dot(u, ht.matmul(weight_mat, v))
         weight = weight / sigma
         return weight, u
 
@@ -109,7 +107,7 @@ class SpectralNorm(object):
         delattr(module, self.name)
         delattr(module, self.name + '_u')
         delattr(module, self.name + '_orig')
-        module.register_parameter(self.name, th.nn.Parameter(weight))
+        module.register_parameter(self.name, ht.nn.Parameter(weight))
 
     def __call__(self, module, inputs):
         if module.training:
@@ -156,24 +154,17 @@ class FeatureDisentangle(nn.Module):
         super(FeatureDisentangle, self).__init__()
         self.conv_1 = nn.Sequential(
             normalization(in_channels),
-
-            nn.Conv2d(in_channels, in_channels, 3, 1, 1),
             nn.SiLU(),
+            nn.Conv2d(in_channels, in_channels, 3, 1, 1),
         )
         self.conv_2 = nn.Sequential(
             normalization(in_channels),
-
-            nn.Conv2d(in_channels, half_conv_ch, 3, 1, 1),
             nn.SiLU(),
-        )
-
-        # todo 加个norm
-        # self.norm = nn.InstanceNorm2d(half_conv_ch)
+            nn.Conv2d(in_channels, half_conv_ch, 1, 1, 0))
 
     def forward(self, x):
         out = self.conv_1(x) + x
         out = self.conv_2(out)
-        # out = self.norm(out)
         return out
 
 
@@ -208,14 +199,8 @@ class DSUnetModel(nn.Module):
                  num_attention_blocks=None,
                  disable_middle_self_attn=False,
                  use_linear_in_transformer=False,
-                 adm_in_channels=None,
-                 use_edge=False):
+                 adm_in_channels=None, ):
         super(DSUnetModel, self).__init__()
-        # todo 要改的
-        self.use_cross_attn = use_spatial_transformer
-        self.transformer_depth_highres = 4 - transformer_depth
-        self.context_dim_highres = [144] * self.transformer_depth_highres
-        self.use_edge = use_edge
         if use_spatial_transformer:
             assert context_dim is not None, "context_dim must be provided for spatial transformer"
         if context_dim is not None:
@@ -262,8 +247,8 @@ class DSUnetModel(nn.Module):
         self.conv_resample = conv_resample
         self.num_classes = num_classes
         self.use_checkpoint = use_checkpoint
-        self.dtype = th.float16 if use_fp16 else th.float32
-        self.dtype = th.bfloat16 if use_bf16 else self.dtype
+        self.dtype = ht.float16 if use_fp16 else ht.float32
+        self.dtype = ht.bfloat16 if use_bf16 else self.dtype
         self.num_heads = num_heads
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
@@ -297,11 +282,10 @@ class DSUnetModel(nn.Module):
         self.input_blocks = nn.ModuleList(
             [
                 TimestepEmbedSequential(
-                    conv_nd(dims, in_channels if not use_edge else in_channels + 1, model_channels, 3, padding=1)
+                    conv_nd(dims, in_channels, model_channels, 3, padding=1)
                 )
             ]
         )
-        self.modulation_blocks = nn.ModuleList([])
         self._feature_size = model_channels
         input_block_chans = [model_channels]
         ch = model_channels
@@ -343,8 +327,7 @@ class DSUnetModel(nn.Module):
                                 num_head_channels=dim_head,
                                 use_new_attention_order=use_new_attention_order,
                             ) if not use_spatial_transformer else SpatialTransformer(
-                                ch, num_heads, dim_head, depth=self.transformer_depth_highres,
-                                context_dim=self.context_dim_highres,
+                                ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
                                 disable_self_attn=disabled_sa, use_linear=use_linear_in_transformer,
                                 use_checkpoint=use_checkpoint
                             )
@@ -352,12 +335,6 @@ class DSUnetModel(nn.Module):
                 self.input_blocks.append(TimestepEmbedSequential(*layers))
                 self._feature_size += ch
                 input_block_chans.append(ch)
-            self.modulation_blocks.append(nn.Sequential(
-                # normalization(ch),
-                nn.Conv2d(ch, ch * 2, 3, 1, 1),
-                nn.SiLU(),
-            ))
-
             if level != len(channel_mult) - 1:
                 out_ch = ch
                 self.input_blocks.append(
@@ -378,109 +355,11 @@ class DSUnetModel(nn.Module):
                         )
                     )
                 )
-
                 ch = out_ch
                 input_block_chans.append(ch)
                 ds *= 2
                 self._feature_size += ch
 
-        # =================add the 3 input module====================
-        use_spatial_transformer = False
-        if use_edge and not self.use_cross_attn:
-            self.input_blocks_a = nn.ModuleList(
-                [
-                    TimestepEmbedSequential(
-                        conv_nd(dims, in_channels, model_channels, 3, padding=1)
-                    )
-                ]
-            )
-            self.input_blocks_a.extend([copy.deepcopy(module) for module in self.input_blocks[1:]])
-        elif not use_edge and not self.use_cross_attn:
-            self.input_blocks_a = nn.ModuleList([copy.deepcopy(module) for module in self.input_blocks])
-        elif self.use_cross_attn:
-            self.input_blocks_a = nn.ModuleList(
-                [
-                    TimestepEmbedSequential(
-                        conv_nd(dims, in_channels if not use_edge else in_channels + 1, model_channels, 3, padding=1)
-                    )
-                ]
-            )
-            self._feature_size = model_channels
-            input_block_chans = [model_channels]
-            ch = model_channels
-            ds = 1
-            for level, mult in enumerate(channel_mult):
-                for nr in range(self.num_res_blocks[level]):
-                    layers = [
-                        ResBlock(
-                            ch,
-                            time_embed_dim,
-                            dropout,
-                            out_channels=mult * model_channels,
-                            dims=dims,
-                            use_checkpoint=use_checkpoint,
-                            use_scale_shift_norm=use_scale_shift_norm,
-                        )
-                    ]
-                    ch = mult * model_channels
-                    if ds in attention_resolutions:
-                        if num_head_channels == -1:
-                            dim_head = ch // num_heads
-                        else:
-                            num_heads = ch // num_head_channels
-                            dim_head = num_head_channels
-                        if legacy:
-                            # num_heads = 1
-                            dim_head = ch // num_heads if use_spatial_transformer else num_head_channels
-                        if exists(disable_self_attentions):
-                            disabled_sa = disable_self_attentions[level]
-                        else:
-                            disabled_sa = False
-
-                        if not exists(num_attention_blocks) or nr < num_attention_blocks[level]:
-                            layers.append(
-                                AttentionBlock(
-                                    ch,
-                                    use_checkpoint=use_checkpoint,
-                                    num_heads=num_heads,
-                                    num_head_channels=dim_head,
-                                    use_new_attention_order=use_new_attention_order,
-                                ) if not use_spatial_transformer else SpatialTransformer(
-                                    ch, num_heads, dim_head, depth=self.transformer_depth_highres,
-                                    context_dim=self.context_dim_highres,
-                                    disable_self_attn=disabled_sa, use_linear=use_linear_in_transformer,
-                                    use_checkpoint=use_checkpoint
-                                )
-                            )
-                    self.input_blocks_a.append(TimestepEmbedSequential(*layers))
-                    self._feature_size += ch
-                    input_block_chans.append(ch)
-                if level != len(channel_mult) - 1:
-                    out_ch = ch
-                    self.input_blocks_a.append(
-                        TimestepEmbedSequential(
-                            ResBlock(
-                                ch,
-                                time_embed_dim,
-                                dropout,
-                                out_channels=out_ch,
-                                dims=dims,
-                                use_checkpoint=use_checkpoint,
-                                use_scale_shift_norm=use_scale_shift_norm,
-                                down=True,
-                            )
-                            if resblock_updown
-                            else Downsample(
-                                ch, conv_resample, dims=dims, out_channels=out_ch
-                            )
-                        )
-                    )
-
-                    ch = out_ch
-                    input_block_chans.append(ch)
-                    ds *= 2
-                    self._feature_size += ch
-        # =================End add the 3 input module====================
         if num_head_channels == -1:
             dim_head = ch // num_heads
         else:
@@ -491,12 +370,47 @@ class DSUnetModel(nn.Module):
             dim_head = ch // num_heads if use_spatial_transformer else num_head_channels
 
         # todo try cross-attention before the middle block or in the middle block?
-        if self.use_cross_attn:
-            self.cross_attention_middle = SpatialTransformer(
-                ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
-                disable_self_attn=True, use_linear=use_linear_in_transformer,
-                use_checkpoint=use_checkpoint
-            )
+        # self.cross_attention_middle = TimestepEmbedSequential(
+        #     SpatialTransformer(
+        #         ch, num_heads, dim_head, depth=transformer_depth, context_dim=ch,
+        #         disable_self_attn=disable_middle_self_attn, use_linear=use_linear_in_transformer,
+        #         use_checkpoint=use_checkpoint
+        #     )
+        # )
+        # self.middle_block = TimestepEmbedSequential(
+        #     ResBlock(
+        #         ch,
+        #         time_embed_dim,
+        #         dropout,
+        #         dims=dims,
+        #         use_checkpoint=use_checkpoint,
+        #         use_scale_shift_norm=use_scale_shift_norm,
+        #     ),
+        #     AttentionBlock(
+        #         ch,
+        #         use_checkpoint=use_checkpoint,
+        #         num_heads=num_heads,
+        #         num_head_channels=dim_head,
+        #         use_new_attention_order=use_new_attention_order,
+        #     ) if not use_spatial_transformer else SpatialTransformer(  # always uses a self-attn
+        #         ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
+        #         disable_self_attn=disable_middle_self_attn, use_linear=use_linear_in_transformer,
+        #         use_checkpoint=use_checkpoint
+        #     ),
+        #     ResBlock(
+        #         ch,
+        #         time_embed_dim,
+        #         dropout,
+        #         dims=dims,
+        #         use_checkpoint=use_checkpoint,
+        #         use_scale_shift_norm=use_scale_shift_norm,
+        #     ),
+        # )
+        # self.cross_attention_middle = SpatialTransformer(
+        #     ch, num_heads, dim_head, depth=4, context_dim=context_dim,
+        #     disable_self_attn=disable_middle_self_attn, use_linear=use_linear_in_transformer,
+        #     use_checkpoint=use_checkpoint
+        # )
         self.middle_block = TimestepEmbedSequential(
             ResBlock(
                 ch,
@@ -526,72 +440,9 @@ class DSUnetModel(nn.Module):
                 use_scale_shift_norm=use_scale_shift_norm,
             ),
         )
-        # ==================cross middle block====================
-        # use_spatial_transformer = True
-        # self.middle_block = TimestepEmbedSequential(
-        #     ResBlock(
-        #         ch,
-        #         time_embed_dim,
-        #         dropout,
-        #         dims=dims,
-        #         use_checkpoint=use_checkpoint,
-        #         use_scale_shift_norm=use_scale_shift_norm,
-        #     ),
-        #     AttentionBlock(
-        #         ch,
-        #         use_checkpoint=use_checkpoint,
-        #         num_heads=num_heads,
-        #         num_head_channels=dim_head,
-        #         use_new_attention_order=use_new_attention_order,
-        #     ) if not use_spatial_transformer else SpatialTransformer(  # not always uses a self-attn
-        #         ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
-        #         disable_self_attn=disable_middle_self_attn, use_linear=use_linear_in_transformer,
-        #         use_checkpoint=use_checkpoint
-        #     ),
-        #     ResBlock(
-        #         ch,
-        #         time_embed_dim,
-        #         dropout,
-        #         dims=dims,
-        #         use_checkpoint=use_checkpoint,
-        #         use_scale_shift_norm=use_scale_shift_norm,
-        #     ),
-        # )
-        # =================add the 3 middle module====================
-        # use_spatial_transformer = False
-        # self.middle_block_a = TimestepEmbedSequential(
-        #     ResBlock(
-        #         ch,
-        #         time_embed_dim,
-        #         dropout,
-        #         dims=dims,
-        #         use_checkpoint=use_checkpoint,
-        #         use_scale_shift_norm=use_scale_shift_norm,
-        #     ),
-        #     AttentionBlock(
-        #         ch,
-        #         use_checkpoint=use_checkpoint,
-        #         num_heads=num_heads,
-        #         num_head_channels=dim_head,
-        #         use_new_attention_order=use_new_attention_order,
-        #     ) if not use_spatial_transformer else SpatialTransformer(  # always uses a self-attn
-        #         ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
-        #         disable_self_attn=disable_middle_self_attn, use_linear=use_linear_in_transformer,
-        #         use_checkpoint=use_checkpoint
-        #     ),
-        #     ResBlock(
-        #         ch,
-        #         time_embed_dim,
-        #         dropout,
-        #         dims=dims,
-        #         use_checkpoint=use_checkpoint,
-        #         use_scale_shift_norm=use_scale_shift_norm,
-        #     ),
-        # )
-        # =================End add the 3 middle module  start output====================
-        use_spatial_transformer = self.use_cross_attn
+
         self._feature_size += ch
-        # self.modulation_blocks_output = nn.ModuleList([])
+
         self.output_blocks = nn.ModuleList([])
         # self.skip_connect_blocks = nn.ModuleList([])
         for level, mult in list(enumerate(channel_mult))[::-1]:
@@ -632,8 +483,7 @@ class DSUnetModel(nn.Module):
                                 num_head_channels=dim_head,
                                 use_new_attention_order=use_new_attention_order,
                             ) if not use_spatial_transformer else SpatialTransformer(
-                                ch, num_heads, dim_head, depth=self.transformer_depth_highres,
-                                context_dim=self.context_dim_highres,
+                                ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
                                 disable_self_attn=disabled_sa, use_linear=use_linear_in_transformer,
                                 use_checkpoint=use_checkpoint
                             )
@@ -657,11 +507,7 @@ class DSUnetModel(nn.Module):
                     ds //= 2
                 self.output_blocks.append(TimestepEmbedSequential(*layers))
                 self._feature_size += ch
-            # self.modulation_blocks_output.append(nn.Sequential(
-            #     # normalization(ch),
-            #     nn.Conv2d(ch, ch * 2, 3, 1, 1),
-            #     nn.SiLU(), )
-            # )
+
         self.out = nn.Sequential(
             normalization(ch),
             nn.SiLU(),
@@ -673,15 +519,12 @@ class DSUnetModel(nn.Module):
                 conv_nd(dims, model_channels, n_embed, 1),
                 # nn.LogSoftmax(dim=1)  # change to cross_entropy and produce non-normalized logits
             )
-
-        self.input_blocks_al = nn.ModuleList([copy.deepcopy(module) for module in self.input_blocks_a])
-        self.input_blocks_l = nn.ModuleList([copy.deepcopy(module) for module in self.input_blocks_a])
-        # if self.use_edge:
-        #     self.input_blocks_e = nn.ModuleList([copy.deepcopy(module) for module in self.input_blocks_a])
-
-        # self.middle_block_a = self.middle_block_a
-        # self.middle_block_al = copy.deepcopy(self.middle_block_a)
-        # self.middle_block_l = copy.deepcopy(self.middle_block_a)
+        self.input_blocks_a = nn.ModuleList([copy.deepcopy(module) for module in self.input_blocks])
+        self.input_blocks_al = nn.ModuleList([copy.deepcopy(module) for module in self.input_blocks])
+        self.input_blocks_l = nn.ModuleList([copy.deepcopy(module) for module in self.input_blocks])
+        # self.middle_block_a = copy.deepcopy(self.middle_block)
+        # self.middle_block_al = copy.deepcopy(self.middle_block)
+        # self.middle_block_l = copy.deepcopy(self.middle_block)
 
         input_ch = int(channel_mult[0] * model_channels)
         # the deepest conv channel
@@ -723,14 +566,12 @@ class DSUnetModel(nn.Module):
         self.style_proj = nn.Sequential(
             SE_Attention(half_conv_ch, reduction=8),
             # nn.SiLU(),
-            # nn.Conv2d(half_conv_ch, half_conv_ch, 3, 1, 1),
-            # nn.SiLU(),
+            nn.Conv2d(half_conv_ch, half_conv_ch, 3, 1, 1)
         )
         self.share_content_proj = nn.Sequential(
             SE_Attention(half_conv_ch, reduction=8),
             # nn.SiLU(),
-            # nn.Conv2d(half_conv_ch, half_conv_ch, 3, 1, 1),
-            # nn.SiLU(),
+            nn.Conv2d(half_conv_ch, half_conv_ch, 3, 1, 1)
         )
         # self.content_proj = nn.Sequential(
         #     SE_Attention(half_conv_ch * 3, reduction=8),
@@ -741,14 +582,12 @@ class DSUnetModel(nn.Module):
         self.anatomy_proj = nn.Sequential(
             SE_Attention(half_conv_ch, reduction=8),
             # nn.SiLU(),
-            # nn.Conv2d(half_conv_ch, half_conv_ch, 3, 1, 1),
-            # nn.SiLU(),
+            nn.Conv2d(half_conv_ch, half_conv_ch, 3, 1, 1),
         )
         self.lesion_proj = nn.Sequential(
             SE_Attention(half_conv_ch, reduction=8),
             # nn.SiLU(),
-            # nn.Conv2d(half_conv_ch, half_conv_ch, 3, 1, 1),
-            # nn.SiLU(),
+            nn.Conv2d(half_conv_ch, half_conv_ch, 3, 1, 1)
         )
         # todo use for concat into middle block
         # self.all_proj = nn.Sequential(
@@ -758,9 +597,8 @@ class DSUnetModel(nn.Module):
         # )
         self.all_proj = nn.Sequential(
             # SE_Attention(half_conv_ch * 6, reduction=8),
-            # nn.SiLU(),
-            nn.Conv2d(half_conv_ch * 6, conv_ch, 1, 1, 0),
             nn.SiLU(),
+            nn.Conv2d(half_conv_ch * 6, conv_ch, 1, 1, 0),
         )
         # self.all_proj = ResBlock(
         #     conv_ch * 2,
@@ -771,10 +609,6 @@ class DSUnetModel(nn.Module):
         #     use_checkpoint=use_checkpoint,
         #     use_scale_shift_norm=use_scale_shift_norm,
         # )
-        # condition with emb
-        # self.linear_group = nn.ModuleList([nn.Sequential(
-        #     nn.SiLU(),
-        #     nn.Conv2d(half_conv_ch, 384, (image_size // 32), )) for _ in range(4)])
 
     def convert_to_fp16(self):
         """
@@ -809,17 +643,25 @@ class DSUnetModel(nn.Module):
         hs_al = []
         hs_l = []
         t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
-        emb = self.time_embed(t_emb)  # 384
+        emb = self.time_embed(t_emb)
         # Disentanglement
         # a: anatomy, l: lesion, al: anatomy and lesion, n: noise
-        input_a = x[:, 1:2, ...]
-        input_al = x[:, 2:3, ...]
-        input_l = x[:, 3:4, ...]
-        input_n = x[:, 0:1, ...]
-        if self.use_edge:
-            assert x.shape[1] == 5
-            input_edge = x[:, 4:5, ...]
-            input_n = th.cat([input_n, input_edge], dim=1)
+        # input_a = x[:, 1:2, ...]
+        # input_al = x[:, 2:3, ...]
+        # input_l = x[:, 3:4, ...]
+        # input_n = x[:, 0:1, ...]
+        import torch
+        if x.shape[1] == 2:
+            input_n = x[:, 0:1, ...]  # 第 1 个通道
+            input_a = x[:, 1:2, ...]  # 第 2 个通道
+            input_al = torch.zeros_like(input_n)  # 缺失的通道，填充 0
+            input_l = torch.zeros_like(input_n)  # 缺失的通道，填充 0
+        else:
+            input_a = x[:, 1:2, ...]  # 解剖结构
+            input_al = x[:, 2:3, ...]  # 解剖结构和病变区域的结合
+            input_l = x[:, 3:4, ...]  # 病变区域
+            input_n = x[:, 0:1, ...]  # 噪声
+
         if self.num_classes is not None:
             assert y.shape[0] == x.shape[0]
             emb = emb + self.label_emb(y)
@@ -829,8 +671,10 @@ class DSUnetModel(nn.Module):
         h_al = input_al.type(self.dtype)
         h_l = input_l.type(self.dtype)
 
+        for module in self.input_blocks:
+            h_n = module(h_n, emb, context)
+            hs.append(h_n)
         # todo if keep the h in these input_block to plus or concat the hs , now yes
-
         for module in self.input_blocks_a:
             h_a = module(h_a, emb, context)
             hs_a.append(h_a)
@@ -841,11 +685,15 @@ class DSUnetModel(nn.Module):
             h_l = module(h_l, emb, context)
             hs_l.append(h_l)
 
+        h_n = self.middle_block(h_n, emb, context)
+
         # h_a = self.middle_block_a(h_a, emb, context)
         # h_al = self.middle_block_al(h_al, emb, context)
         # h_l = self.middle_block_l(h_l, emb, context)
 
         # C-S disentangle  content: share_content
+        h_n_style = self.conv_style(h_n)
+        h_n_content = self.conv_content(h_n)
 
         h_a_style = self.conv_style(h_a)
         h_a_content = self.conv_content(h_a)
@@ -855,13 +703,7 @@ class DSUnetModel(nn.Module):
 
         h_l_style = self.conv_style(h_l)
         h_l_content = self.conv_content(h_l)
-        # 并行化
-        # all_h_batch = th.cat([h_a, h_al, h_l], dim=0)
-        # h_a_style, h_al_style, h_l_style = th.chunk(self.conv_style(all_h_batch), 3)
-        # h_a_content, h_al_content, h_l_content = th.chunk(self.conv_content(all_h_batch), 3)
         # lesion anatomy disentangle
-        # h_a_anatomy, h_al_anatomy = th.chunk(self.conv_anatomy(th.cat([h_a, h_al], dim=0)), 2)
-        # h_al_lesion, h_l_lesion = th.chunk(self.conv_lesion(th.cat([h_al, h_l], dim=0)), 2)
 
         h_a_anatomy = self.conv_anatomy(h_a)
         h_al_anatomy = self.conv_anatomy(h_al)
@@ -875,65 +717,40 @@ class DSUnetModel(nn.Module):
         h_lesion_list = [h_al_lesion, h_l_lesion]  # 独有的病变
 
         # todo Add or Concat
-        # h_style = self.style_proj(th.cat(h_style_list[:], dim=1))
-        # h_share_content = self.share_content_proj(th.cat(h_content_list[:], dim=1))
-        h_style = self.style_proj(th.mean(th.stack(h_style_list[:]), dim=0))
-        h_share_content = self.share_content_proj(th.mean(th.stack(h_content_list[:]), dim=0))
-        h_anatomy = self.anatomy_proj(th.mean(th.stack(h_anatomy_list), dim=0))
-        h_lesion = self.lesion_proj(th.mean(th.stack(h_lesion_list), dim=0))
-        # h_anatomy = self.anatomy_proj(th.cat(h_anatomy_list, dim=1))
-        # h_lesion = self.lesion_proj(th.cat(h_lesion_list, dim=1))
-        # h_content = self.content_proj(th.cat([h_share_content, h_anatomy, h_lesion], dim=1))
-        # h_n_and_all_list = [h_style, h_n_style, h_share_content, h_n_content]
+        # h_style = self.style_proj(ht.cat(h_style_list[:], dim=1))
+        # h_share_content = self.share_content_proj(ht.cat(h_content_list[:], dim=1))
+        h_style = self.style_proj(ht.mean(ht.stack(h_style_list[:]), dim=0))
+        h_share_content = self.share_content_proj(ht.mean(ht.stack(h_content_list[:]), dim=0))
+        h_anatomy = self.anatomy_proj(ht.mean(ht.stack(h_anatomy_list), dim=0))
+        h_lesion = self.lesion_proj(ht.mean(ht.stack(h_lesion_list), dim=0))
+        # h_anatomy = self.anatomy_proj(ht.cat(h_anatomy_list, dim=1))
+        # h_lesion = self.lesion_proj(ht.cat(h_lesion_list, dim=1))
+        # h_content = self.content_proj(ht.cat([h_share_content, h_anatomy, h_lesion], dim=1))
+        h_n_and_all_list = [h_style, h_n_style, h_share_content, h_n_content]
 
         # feature_scal =
-        context = [h_style, h_share_content, h_anatomy, h_lesion]
-        # for i in range(len(context)):
-        #     context[i] = rearrange(context[i], 'b c h w -> b (h w) c').contiguous()
-        #     # 另类的方式输入
-        #     context[i] = self.linear_group[i](context[i])
-        #     context[i] = context[i].squeeze()
-        # highres_emb = emb + th.mean(th.stack(context), dim=0)
-        # lowres_emb = emb + th.mean(th.stack(context), dim=0)
-        highres_emb = emb
-        lowres_emb = emb
-        # lowres_context = context[0:2]
-        # highres_context = context[2:]
-        lowres_context = None
-        highres_context = None
-        modu_block_idx = 0
-        for idx, module in enumerate(self.input_blocks):
-            if (idx + 1) % 3 == 0:
-                # modulation condition
-                cond_xs = hs_a[idx] + hs_al[idx] + hs_l[idx]
-                affine = self.modulation_blocks[idx // 3]
-                cond_xs_scale_shift = affine(cond_xs)
-                h_n = module(h_n, (highres_emb, cond_xs_scale_shift), highres_context)
-            else:
-                h_n = module(h_n, highres_emb, highres_context)
-            hs.append(h_n)
-        h_n = self.middle_block(h_n, lowres_emb, None)
 
-        if self.use_cross_attn:
-            h = self.cross_attention_middle(h_n, lowres_context)
-        else:
-            h = th.cat([h_n, h_share_content, h_style, h_anatomy, h_lesion], dim=1)
-            # h = th.cat([h_n, h_a, h_al, h_l], dim=1)
-            # h = self.all_proj(h, emb)
-            h = self.all_proj(h)
+        # todo first experiment concat into middle block, later maybe attention
+        h = ht.cat([h_n, h_share_content, h_style, h_anatomy, h_lesion], dim=1)
+        # h = ht.cat([h_n, h_a, h_al, h_l], dim=1)
+        #
+        # h = self.all_proj(h, emb)
+        h = self.all_proj(h)
+        # context = [h_share_content, h_style, h_anatomy, h_lesion]
+        # h = self.cross_attention_middle(h, context)
+        #
+
         for module in self.output_blocks:
             # todo cat or plus
-            h = th.cat([h, (hs.pop() + hs_a.pop() + hs_al.pop() + hs_l.pop()) / 4], dim=1)
-            h = module(h, highres_emb, highres_context)
-
+            h = ht.cat([h, (hs.pop() + hs_a.pop() + hs_al.pop() + hs_l.pop()) / 4], dim=1)
+            h = module(h, emb, context)
         h = h.type(x.dtype)
         if self.predict_codebook_ids:
             return self.id_predictor(h)
         else:
-            return (self.out(h), {"style": h_style_list,
-                                  "content": h_content_list,
-                                  "anatomy": h_anatomy_list,
-                                  "lesion": h_lesion_list,
-                                  # "n_style_content": h_n_and_all_list,
-                                  }
-                    )
+            return (self.out(h.float()),
+                    {"style": h_style_list,
+                     "content": h_content_list,
+                     "anatomy": h_anatomy_list,
+                     "lesion": h_lesion_list,
+                     "n_style_content": h_n_and_all_list, })

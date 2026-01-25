@@ -1,8 +1,8 @@
 # =========== normal setting ===========
-net_mode: ds_diff   # 小帅哥记得修改噢
+net_mode: ds_diff   # 记得修改噢
 Task_name: CE_MRI_synthesis
-Task_id: 157
-cuda_idx: 0
+Task_id: 146
+cuda_idx: 3
 fold_K: 5
 fold_idx: 1
 vae_local_pretrained: False
@@ -13,15 +13,15 @@ test_num:
 test_batch_size: 48
 dataset_type: normal
 sampler_setting:
-  sampler: "ddim"
+  sampler: "ddpm"
   ddim_use_original_steps: False
-  sample_steps: 20
+  sample_steps: 1000
   ddim_eta: 0
 # path
-dir_prefix: '/home/user4/sharedata/'
-result_path: 'newnas_1/MJY_file/diffusion/train_result/'
-filepath_img: 'newnas/MJY_file/CE-MRI/PCa_new/CE-MRI-PCa-new-pre-320320-01norm'
-h5_2d_img_dir: 'newnas/MJY_file/CE-MRI/PCa_new/h5_data_2d_pre_320320_01norm'
+dir_prefix:
+result_path:
+filepath_img:
+h5_2d_img_dir:
 image_size: 320   #no use
 # =========== optim setting ============
 seed: 2024

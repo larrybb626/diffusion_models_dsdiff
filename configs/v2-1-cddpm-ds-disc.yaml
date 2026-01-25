@@ -22,14 +22,14 @@ model:
         num_classes: null
         adm_in_channels: 2048  #classifier guidance
         use_checkpoint: True
-        image_size: 32 # unused
+        image_size: 32 # unused  32
         in_channels: 1
         out_channels: 1
-        model_channels: 96
+        model_channels: 320
         attention_resolutions: [32,16,8]
         num_res_blocks: 2
         channel_mult: [1, 1, 2, 2, 3, 3]
-        num_head_channels: 48 # need to fix for flash-attn
+        num_head_channels: 32 # need to fix for flash-attn  48
         use_new_attention_order: True # less memory usage
         use_spatial_transformer: False
         use_linear_in_transformer: True

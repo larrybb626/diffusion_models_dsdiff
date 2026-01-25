@@ -4,7 +4,7 @@ import sys
 
 from omegaconf import OmegaConf
 
-from inference.test_param import config
+from inference.test_config import config
 import lightning.pytorch as pl
 from trainers.trainer_latent_diffusion import LatentDiffusionModel
 from monai.utils import set_determinism

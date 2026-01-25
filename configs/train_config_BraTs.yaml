@@ -1,8 +1,8 @@
 # =========== normal setting ===========
-net_mode: ds_diff  # 小帅哥记得修改噢
+net_mode: ds_diff  # 记得修改噢
 Task_name: BraTs_synthesis  # BraTs_synthesis/CE_MRI_synthesis
-Task_id: 76
-cuda_idx: [2]
+Task_id: 60
+cuda_idx: [0]
 fold_K: 5
 fold_idx: 1
 vae_local_pretrained: False
@@ -20,18 +20,17 @@ sampler_setting:
   ddim_use_original_steps: False
   sample_steps: 20
 # path
-dir_prefix: '/home/user4/sharedata/'
-result_path: 'newnas_1/MJY_file/diffusion/train_result_BraTs/'
-filepath_img: 'newnas_1/MJY_file/BraTS_dataset/data_pre_original/'
-h5_2d_img_dir: 'newnas_1/MJY_file/BraTS_dataset/data_pre_h5/'
+dir_prefix:
+result_path:
+filepath_img:
+h5_2d_img_dir:
 image_size: 192   #no use
 data_name: 'BraTs' #BraTs or prostate
 include_test: True  # trainset include testset
-shannon: False
 # =========== optim setting ============
 disentangle_distance: eu # eu or eu&contrast or contrast or null
 contrast_lambda: 0.5 #上面是总开关
-use_edge: sobel  # sobel or laplacian or canny or False
+use_edge: False  # sobel or laplacian or canny or False
 lr: 1e-4
 lr_low: 1e-7
 num_epochs: 200

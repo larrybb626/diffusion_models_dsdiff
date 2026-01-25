@@ -4,11 +4,10 @@ import SimpleITK as sitk
 import numpy as np
 import torch
 import tqdm
-from monai.transforms import Compose
 from skimage.measure import shannon_entropy
 from sklearn.model_selection import KFold
 from torch.utils.data import Dataset
-from training_project.training_transform import get_2d_train_transform_diff
+
 
 def load_data(
         *,
@@ -143,51 +142,8 @@ class ProstateMRI_with_shannon_entropy(Dataset):
     def __getitem__(self, index):
         return self.ce_data[index], self.t1_data[index], self.t2_data[index], self.dwi_data[index]
 
-class ProstateMRI_with_shannon_entropy_new(Dataset):
-    def __init__(self, dataset_config, train_transforms):
-        self.ce_data, self.t1_data, self.t2_data, self.dwi_data = (np.load(dataset_config.train_ce_dir, mmap_mode="r"),
-                                                                   np.load(dataset_config.train_t1_dir, mmap_mode="r"),
-                                                                   np.load(dataset_config.train_t2_dir, mmap_mode="r"),
-                                                                   np.load(dataset_config.train_dwi_dir, mmap_mode="r"))
 
-        data_dict = {}
-        for s in tqdm.tqdm(range(len(self.ce_data)), desc="Calculating shannon entropy"):
-            entropy = np.round(shannon_entropy(self.ce_data[s]))
-            if entropy in data_dict:
-                data_dict[entropy].append(s)
-            else:
-                data_dict[entropy] = [s]
-
-        self.ce_data = torch.from_numpy(self.ce_data).float()
-        self.t1_data = torch.from_numpy(self.t1_data).float()
-        self.t2_data = torch.from_numpy(self.t2_data).float()
-        self.dwi_data = torch.from_numpy(self.dwi_data).float()
-
-        self.ce_data = torch.unsqueeze(self.ce_data, 1)
-        self.t1_data = torch.unsqueeze(self.t1_data, 1)
-        self.t2_data = torch.unsqueeze(self.t2_data, 1)
-        self.dwi_data = torch.unsqueeze(self.dwi_data, 1)
-        self.new_compose = Compose(train_transforms.transforms[5:])
-        self.data_dict = data_dict
-        print(self.ce_data.shape, self.t1_data.shape, self.t2_data.shape, self.dwi_data.shape)
-
-    def __len__(self):
-        return self.ce_data.shape[0]
-
-    def __getitem__(self, index):
-        batch = []
-        for i in index:
-            d = {"image": torch.cat([self.t1_data[i], self.t2_data[i], self.dwi_data[i]], 0),
-                 "t1ce": self.ce_data[i],
-                 "mask": np.ones_like(self.ce_data[i])}
-            batch.append(self.new_compose(d))
-        real_batch = {}
-        for key in batch[0].keys():
-            real_batch[key] = torch.stack([d[key] for d in batch],0)
-        return real_batch
-
-
-class BraTSdataMRI(Dataset):
+class BraTSMRI(Dataset):
     def __init__(self, dataset_config):
         self.ce_data, self.t1_data, self.t2_data = [], [], []
         train_dir = dataset_config.train_dir

@@ -1,10 +1,11 @@
 import os
 import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 from configs.train_config import config
 from monai.utils import set_determinism
-
+import lightning.pytorch as pl
 from trainers.trainer_diffusion import DiffusionModel
 
 from training_project.utils.My_callback import CheckPointSavingMetric
@@ -22,13 +23,13 @@ if __name__ == "__main__":
     # 设置好路径
     dir_prefix = sys.argv[0].split("/newnas")[0]
     config.filepath_img = os.path.join(dir_prefix, config.filepath_img)
-    config.h5_3d_img_dir = os.path.join(dir_prefix, config.h5_3d_img_dir)
+    # config.h5_3d_img_dir = os.path.join(dir_prefix, config.h5_3d_img_dir)
     config.h5_2d_img_dir = os.path.join(dir_prefix, config.h5_2d_img_dir)
-    config.filepath_mask = os.path.join(dir_prefix, config.filepath_mask)
+    # config.filepath_mask = os.path.join(dir_prefix, config.filepath_mask)
     config.result_path = os.path.join(dir_prefix,config.result_path)
     # 设置任务名和对应的路径
     # CE_MRI_simulate_1_2d_fold5-1
-    task_name = config.Task_name + '_' + config.Task_id + '_' + config.net_mode + '_fold' + str(
+    task_name = config.Task_name + '_' + str(config.Task_id) + '_' + config.net_mode + '_fold' + str(
         config.fold_K) + "-" + str(
         config.fold_idx)
     print("===================={}=====================".format(task_name))

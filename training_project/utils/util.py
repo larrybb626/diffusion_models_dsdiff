@@ -4,7 +4,7 @@ import torch
 from monai.transforms import SobelGradients, AsDiscrete, Compose
 import torch.nn as nn
 from PIL import Image
-import h5py
+
 
 def normalize_percentile_to_255(data, lower_percentile=0, upper_percentile=100):
     """
@@ -153,21 +153,3 @@ def get_heatmap(cosine_matrix):
     heatmap_colored = Image.fromarray(heatmap_colored)
     image_tensor = torch.tensor(np.array(heatmap_colored))
     return image_tensor
-
-def save_tensor_hdf5(file_path, new_data, label):
-    """
-    追加写入新的张量数据到 HDF5 文件中
-    :param file_path: HDF5 文件路径
-    :param new_data: 要存储的张量 (torch.Tensor)
-    :param label: 类别标签 (str)
-    """
-    with h5py.File(file_path, "a") as f:  # "a" 模式表示追加
-        if label in f:
-            # 如果数据集已存在，扩展它
-            dset = f[label]
-            dset.resize((dset.shape[0] + new_data.shape[0]), axis=0)  # 扩展第一维
-            dset[-new_data.shape[0]:] = new_data.cpu().numpy()  # 追加数据
-        else:
-            # 如果数据集不存在，创建新的
-            maxshape = (None, *new_data.shape[1:])  # 第一维不固定，其他维度固定
-            f.create_dataset(label, data=new_data.cpu().numpy(), maxshape=maxshape)

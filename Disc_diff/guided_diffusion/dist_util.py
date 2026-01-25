@@ -24,7 +24,7 @@ def setup_dist():
     """
     if dist.is_initialized():
         return
-    os.environ["CUDA_VISIBLE_DEVICES"] = f"3"
+    os.environ["CUDA_VISIBLE_DEVICES"] = f"0"
 
     comm = MPI.COMM_WORLD
     backend = "gloo" if not th.cuda.is_available() else "nccl"

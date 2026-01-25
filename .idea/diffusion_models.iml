@@ -4,7 +4,7 @@
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/.idea/copilot/chatSessions" />
     </content>
-    <orderEntry type="jdk" jdkName="mjy_310_small" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Remote Python 3.10.0 (sftp://root@172.21.124.35:501/root/anaconda3/envs/mjy_310/bin/python3.10)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>
