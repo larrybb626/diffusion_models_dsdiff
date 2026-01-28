@@ -8,11 +8,13 @@ import SimpleITK as sitk
 import lightning.pytorch as pl
 import numpy as np
 import torch
+from deepspeed.ops.adam import DeepSpeedCPUAdam
 from monai.data import Dataset, CacheDataset, decollate_batch, DataLoader, pad_list_data_collate
 from monai.metrics import MAEMetric, SSIMMetric
 from sklearn.model_selection import KFold
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
+from torch.utils.data.distributed import DistributedSampler # 必须导入
 
 from Disc_diff.guided_diffusion.gaussian_diffusion import L1_Charbonnier_loss
 from Disc_diff.guided_diffusion.losses import discretized_gaussian_log_likelihood
@@ -127,13 +129,22 @@ class DSDiffModel(DDPM, pl.LightningModule):
         self.validation_step_outputs = []
 
     def prepare_data(self):
-        # prepare data
-        # 根据dir 获取train：0 val：1
-        print("preparing data with val")
+        # DDP模式下，这个方法只在主进程（Rank 0）运行。
+        # 你的数据读取是读现有文件，不是下载，所以这里留空或者只打印一下。
+        # 真正的赋值逻辑移到 setup() 中。
+        pass
+
+    def setup(self, stage=None):
+        # 这个方法会在每张卡（每个进程）上都运行！
+        # 这里进行 self.train_ds 的赋值，保证每张卡都有数据对象。
+        print(f"Setting up data on Rank: {self.global_rank}")
+
         if self.config.data_name == 'BraTs':
             datasets = (sorted(os.listdir(self.train_dir)), sorted(os.listdir(self.val_dir)))
-            self.print_to_txt(f'train_id:{len(datasets[0])}||valid_id:{len(datasets[1])}')
+            if self.trainer.is_global_zero:
+                self.print_to_txt(f'train_id:{len(datasets[0])}||valid_id:{len(datasets[1])}')
         else:
+            # 这里的 do_split 使用了固定的 seed，所以每张卡切分出来的结果是一样的，安全。
             datasets = self.do_split(self.fold_K, self.fold_idx)
         # datasets = self.do_split(self.fold_K, self.fold_idx)
         train_dict = self.get_data_dict(datasets[0], self.train_dir)
@@ -223,7 +234,9 @@ class DSDiffModel(DDPM, pl.LightningModule):
 
         train_id = fold_train[fold - 1]
         test_id = fold_test[fold - 1]
-        self.print_to_txt(f'train_id:{len(train_id)}||valid_id:{len(test_id)}')
+        # 只在主进程打印，避免刷屏
+        if self.trainer.is_global_zero:
+            self.print_to_txt(f'train_id:{len(train_id)}||valid_id:{len(test_id)}')
         if self.conclude_test:
             train_id = np.stack([train_id, test_id], axis=0)
         return [train_id, test_id]
@@ -262,33 +275,58 @@ class DSDiffModel(DDPM, pl.LightningModule):
         return data_dict
 
     def train_dataloader(self):
+        # DDP 必须使用 DistributedSampler
+        sampler = DistributedSampler(
+            self.train_ds,
+            num_replicas=self.trainer.world_size,
+            rank=self.trainer.global_rank,
+            shuffle=True, # 只有这里设True
+            drop_last=True
+        )
         train_loader = DataLoader(
             self.train_ds,
             batch_size=self.train_batch_size,
-            shuffle=True,
-            num_workers=self.num_workers if sys.gettrace() is None else 1,
+            shuffle=False, # 这里必须False，sampler会处理shuffle
+            sampler=sampler,
+            num_workers=0, # DDP建议先设为0，稳定后再调高 self.num_workers if sys.gettrace() is None else 1
             pin_memory=True,
             collate_fn=pad_list_data_collate,
         )
         return train_loader
 
     def val_dataloader(self):
+        # 验证集也建议加 DistributedSampler，防止重复验证
+        sampler = DistributedSampler(
+            self.val_ds,
+            num_replicas=self.trainer.world_size,
+            rank=self.trainer.global_rank,
+            shuffle=False,
+            drop_last=False
+        )
         val_loader = DataLoader(
             self.val_ds,
             batch_size=self.val_batch_size,
-            shuffle=True,
-            num_workers=self.num_workers,
+            shuffle=False,
+            sampler=sampler,
+            num_workers=0, #self.num_workers
             pin_memory=True,
             collate_fn=pad_list_data_collate,
         )
         return val_loader
 
     def predict_dataloader(self):
+        sampler = DistributedSampler(
+            self.test_ds,
+            num_replicas=self.trainer.world_size,
+            rank=self.trainer.global_rank,
+            shuffle=False
+        )
         pred_loader = DataLoader(
             self.test_ds,
             batch_size=self.test_batch_size,
             shuffle=False,
-            num_workers=self.num_workers,
+            sampler=sampler,
+            num_workers=0, #self.num_workers
             pin_memory=True,
             collate_fn=pad_list_data_collate,
         )
@@ -300,7 +338,9 @@ class DSDiffModel(DDPM, pl.LightningModule):
         if self.learn_logvar:
             print('Diffusion model optimizing logvar')
             params.append(self.logvar)
-        opt = torch.optim.AdamW(params, lr=lr)
+        # opt = torch.optim.AdamW(params, lr=lr)
+        print("Initializing DeepSpeedCPUAdam...")
+        opt = DeepSpeedCPUAdam(params, lr=lr)
         print("Setting up CosineAnnealingLR scheduler...")
         scheduler = [
             {
@@ -443,12 +483,13 @@ class DSDiffModel(DDPM, pl.LightningModule):
         return loss, disentangle_loss
 
     def on_train_start(self):
-        self.print_to_txt("||start with||\n", print_options(self.config))
-        # self.model.to(self.device)
+        # 移除了 self.model.to(self.device)，DDP 会自动处理
+        if self.trainer.is_global_zero:
+            self.print_to_txt("||start with||\n", print_options(self.config))
 
     def on_train_epoch_start(self):
-        self.print_to_txt("⭐epoch: {}⭐".format(self.current_epoch))
-        # 起始时间
+        if self.trainer.is_global_zero:
+            self.print_to_txt("⭐epoch: {}⭐".format(self.current_epoch))
         self.train_s_time = time.time()
 
     def training_step(self, batch, batch_idx):
@@ -466,14 +507,14 @@ class DSDiffModel(DDPM, pl.LightningModule):
         loss, loss_dict = self.shared_step(batch)
 
         self.log_dict(loss_dict, prog_bar=True,
-                      logger=True, on_step=True, on_epoch=True)
+                      logger=True, on_step=True, on_epoch=True, sync_dist=True) # DDP需要sync_dist=True
 
         self.log("global_step", self.global_step,
-                 prog_bar=True, logger=True, on_step=True, on_epoch=False)
+                 prog_bar=True, logger=True, on_step=True, on_epoch=False, sync_dist=True)
 
         if self.use_scheduler:
             lr = self.optimizers().param_groups[0]['lr']
-            self.log('lr_abs', lr, prog_bar=True, logger=True, on_step=True, on_epoch=False)
+            self.log('lr_abs', lr, prog_bar=True, logger=True, on_step=True, on_epoch=False, sync_dist=True)
         ret_dict = dict()
         ret_dict["loss"] = loss
         for k in loss_dict:
@@ -484,25 +525,44 @@ class DSDiffModel(DDPM, pl.LightningModule):
         # todo: need to change while loss change
         # self.log_dict(outputs)
         self.train_e_time = time.time()
-        time_str = get_duration_time_str(s_time=self.train_s_time, e_time=self.train_e_time)
-        loss_print_content = {}
-        for loss_n, loss_v in outputs.items():
-            loss_print_content.update({loss_n: "%.4f" % loss_v.item()})
-        print_content = "{} / {} {}  || Training cost: {}".format(batch_idx + 1,
-                                                                  len(self.train_dataloader()),
-                                                                  loss_print_content,
-                                                                  time_str)
-        printProgressBar(batch_idx, len(self.train_dataloader()) - 1, content=print_content)
+        # 只有主进程打印进度条
+        if self.trainer.is_global_zero:
+            time_str = get_duration_time_str(s_time=self.train_s_time, e_time=self.train_e_time)
+            loss_print_content = {}
+            for loss_n, loss_v in outputs.items():
+                loss_print_content.update({loss_n: "%.4f" % loss_v.item()})
+            print_content = "{} / {} {}  || Training cost: {}".format(batch_idx + 1,
+                                                                      len(self.train_dataloader()),
+                                                                      loss_print_content,
+                                                                      time_str)
+            printProgressBar(batch_idx, len(self.train_dataloader()) - 1, content=print_content)
+
         if self.use_ema:
             self.model_ema(self.model)
 
     def on_train_epoch_end(self):
         self.train_e_time = time.time()
         time_str = get_duration_time_str(s_time=self.train_s_time, e_time=self.train_e_time)
-        lr = self.optimizers().optimizer.param_groups[0]['lr']
-        self.print_to_txt(
-            "Epoch Done || lr: {} || Epoch cost: {}".format(lr, time_str))
-        self.log("lr", lr)
+        # lr = self.optimizers().optimizer.param_groups[0]['lr']
+
+        # ▼▼▼▼▼▼▼▼▼▼ 修复逻辑 ▼▼▼▼▼▼▼▼▼▼
+        opts = self.optimizers()
+        # 如果是列表（DeepSpeed 模式），取第一个；如果不是，直接用
+        optimizer = opts[0] if isinstance(opts, list) else opts
+
+        # 获取学习率
+        # 注意：有时候 LightningOptimizer 会再包装一层，所以加个判断更稳
+        if hasattr(optimizer, 'param_groups'):
+            lr = optimizer.param_groups[0]['lr']
+        else:
+            # 针对某些特殊包装情况的 fallback
+            lr = optimizer.optimizer.param_groups[0]['lr']
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+        if self.trainer.is_global_zero:
+            self.print_to_txt(
+                "Epoch Done || lr: {} || Epoch cost: {}".format(lr, time_str))
+        self.log("lr", lr, sync_dist=True)
 
     def get_input(self, batch, k, **kwargs):
         x = batch[k]
@@ -727,12 +787,9 @@ class DSDiffModel(DDPM, pl.LightningModule):
         images, labels = (batch["image"], batch[self.keys[-1]])
 
         _, loss_dict_no_ema = self.shared_step(batch)
-        # with self.ema_scope():
-        #     _, loss_dict_ema = self.shared_step(batch)
-        #     loss_dict_ema = {key + '_ema': loss_dict_ema[key] for key in loss_dict_ema}
-        self.log_dict(loss_dict_no_ema, prog_bar=False, logger=True, on_step=False, on_epoch=True)
-        # self.log_dict(loss_dict_ema, prog_bar=False, logger=True, on_step=False, on_epoch=True)
-        if self.current_epoch % 1 == 0:
+        self.log_dict(loss_dict_no_ema, prog_bar=False, logger=True, on_step=False, on_epoch=True, sync_dist=True)
+
+        if self.current_epoch % 1 == 0 and batch_idx == 0 and self.trainer.is_global_zero: # 只在Rank0保存图片
             log = self.log_images(batch=batch, use_ema_scope=False, N=len(batch["image"]),
                                   sampler=self.sampler_setting.sampler, ddim_steps=self.sampler_setting.sample_steps)
 
@@ -748,15 +805,27 @@ class DSDiffModel(DDPM, pl.LightningModule):
                 self.logger.experiment.add_image("real_img", _input, self.global_step + batch_idx + b,
                                                  dataformats="HWC")
 
-            # _rec_img = tensor2im(log['denoise_row'].unsqueeze(0))
-            # self.logger.experiment.add_image("reconstruction_img", _rec_img, self.global_step + batch_idx,
-            #                                  dataformats="HWC")
-            outputs = [i for i in decollate_batch(log["samples"])]
-            labels = [i for i in decollate_batch(log['inputs'])]
-            self.mae_metric(y_pred=outputs, y=labels)
-            self.ssim_metric(y_pred=outputs, y=labels)
+        # ▼▼▼▼▼▼▼▼▼▼ 核心修复区域 ▼▼▼▼▼▼▼▼▼▼
+        # 为了计算指标，我们需要模型输出
+        # 注意：这里我们让每张卡都计算自己的 metric，最后自动汇总
+        if self.current_epoch % 1 == 0:
+             # 生成图像用于指标计算
+             # 注意：为了节省显存，这里其实可以复用上面的 log，但为了逻辑安全重新跑一次 sample 也没事
+             log_metric = self.log_images(batch=batch, use_ema_scope=False, N=len(batch["image"]),
+                                  sampler=self.sampler_setting.sampler, ddim_steps=self.sampler_setting.sample_steps)
 
-        # self.validation_step_outputs.append({"val_number": len(outputs)})
+             # ❌ 之前报错的代码：使用了 decollate_batch 变成了 List
+             # outputs = [i for i in decollate_batch(log_metric["samples"])]
+             # labels = [i for i in decollate_batch(log_metric['inputs'])]
+
+             # ✅ 修复后的代码：直接传 Tensor
+             outputs = log_metric["samples"]
+             labels = log_metric['inputs']
+
+             # 确保数据类型一致（通常已经是 float32，加一层保险）
+             self.mae_metric(y_pred=outputs.float(), y=labels.float())
+             self.ssim_metric(y_pred=outputs.float(), y=labels.float())
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     def on_validation_batch_end(self, outputs, batch, batch_idx, dataloader_idx: int = 0):
         # printProgressBar(batch_idx, len(self.val_dataloader()) - 1,
@@ -769,26 +838,28 @@ class DSDiffModel(DDPM, pl.LightningModule):
         mean_val_mae = self.mae_metric.aggregate().item()
         self.mae_metric.reset()
         self.ssim_metric.reset()
-        if mean_val_ssim > self.best_val_ssim:
-            self.best_val_ssim = mean_val_ssim
-            self.best_val_epoch = self.current_epoch
-        if mean_val_mae < self.best_val_mae:
-            self.best_val_mae = mean_val_mae
-        self.print_to_txt(
-            f"val_loss: No use"
-            f" || current mean SSIM: {mean_val_ssim:.4f}"
-            f" || best mean SSIM: {self.best_val_ssim:.4f} "
-            f"at epoch: {self.best_val_epoch}"
-        )
-        self.print_to_txt(
-            f"current mean MAE: {mean_val_mae:.4f}"
-            f" || best mean MAE: {self.best_val_mae:.4f} "
-        )
+
+        if self.trainer.is_global_zero:
+            if mean_val_ssim > self.best_val_ssim:
+                self.best_val_ssim = mean_val_ssim
+                self.best_val_epoch = self.current_epoch
+            if mean_val_mae < self.best_val_mae:
+                self.best_val_mae = mean_val_mae
+            self.print_to_txt(
+                f"val_loss: No use"
+                f" || current mean SSIM: {mean_val_ssim:.4f}"
+                f" || best mean SSIM: {self.best_val_ssim:.4f} "
+                f"at epoch: {self.best_val_epoch}"
+            )
+            self.print_to_txt(
+                f"current mean MAE: {mean_val_mae:.4f}"
+                f" || best mean MAE: {self.best_val_mae:.4f} "
+            )
 
         self.log_dict({
             "val/ssim": mean_val_ssim,
             "val/mae": mean_val_mae,
-        })
+        }, sync_dist=True)
 
     def on_predict_start(self):
         self.predict_tic = time.time()
@@ -817,7 +888,8 @@ class DSDiffModel(DDPM, pl.LightningModule):
         for id_, slice_i, img in zip(outputs[0], outputs[2], outputs[1]):
             output_img = img.cpu().numpy()
             self.pred_dict[id_].update({str(slice_i): output_img})
-        printProgressBar(batch_idx + 1, len(self.predict_dataloader()), content="predicting......\n")
+        if self.trainer.is_global_zero:
+            printProgressBar(batch_idx + 1, len(self.predict_dataloader()), content="predicting......\n")
 
     def on_predict_end(self):
         self.predict_toc = time.time()
