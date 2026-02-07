@@ -119,7 +119,7 @@ class DSDiffModel(DDPM, pl.LightningModule):
         self.train_dir = os.path.join(self.data_dir, "images_tr")
         self.val_dir = os.path.join(self.data_dir, "images_val") if self.config.data_name == 'BraTs' else self.train_dir
         # self.val_dir = self.train_dir
-        self.test_dir = os.path.join(self.data_dir, "images_tr")  # 记得改回去ts
+        self.test_dir = os.path.join(self.data_dir, "images_ts")  # 记得改回去ts
         self.template_dir = config.filepath_img
         self.result_dir = config.root_dir
         self.record_file = os.path.join(config.root_dir, "log_txt.txt")
@@ -565,12 +565,19 @@ class DSDiffModel(DDPM, pl.LightningModule):
         self.log("lr", lr, sync_dist=True)
 
     def get_input(self, batch, k, **kwargs):
+        # k 传进来的是 self.keys[-1] (即 PSMA)
         x = batch[k]
+        # x 现在就是金标准图像 (Ground Truth)
+
         if len(x.shape) == 3:
             x = x[..., None]
         # x = rearrange(x, 'b h w c -> b c h w')
         x = x.to(memory_format=torch.contiguous_format).float()
+
+        # cond_k 传进来的是 "image" (即 FDG)
         cond = batch[kwargs["cond_k"]]
+        # cond 现在就是条件输入
+
         return x, cond
 
     def shared_step(self, batch):

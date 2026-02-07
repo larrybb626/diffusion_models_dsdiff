@@ -222,9 +222,9 @@ def get_2d_train_transform_diff(keys, random_prob, use_edge=False):
             # # 固定的transform
             # keys[0-T1,1-T1,  2-T1  ]
             # LoadH5(path_key="path", keys=keys),
-            # EnsureChannelFirstd(keys=keys, channel_dim="no_channel"), 
-            # 
-            # 
+            # EnsureChannelFirstd(keys=keys, channel_dim="no_channel"),
+            #
+            #
             # H5:[XX1,XX2,"PATH","t1ce", "mask"]
             # train_config.yaml:train_key:[XX1,XX2]
             # keys[XX1,XX2] + ["t1ce", "mask"]-->[XX1,XX2,"t1ce", "mask"]
@@ -235,9 +235,8 @@ def get_2d_train_transform_diff(keys, random_prob, use_edge=False):
             # # 拼接,keys变成image
             # ConcatItemsd(keys=keys[:-1], name="image", dim=0),
 
-
             # #随机旋转
-            # RandRotated(keys=["image", keys[-1]],       
+            # RandRotated(keys=["image", keys[-1]],
             #             range_x=30 * math.pi / 180,
             #             range_y=30 * math.pi / 180,
             #             prob=random_prob,
@@ -255,7 +254,8 @@ def get_2d_train_transform_diff(keys, random_prob, use_edge=False):
             #     spatial_axis=[1],
             #     prob=random_prob,
             # ),
-
+            # 现在的input_ch只是1，要先处理好3个输入的序列之后才能继续往这里下面跑；现在问题的关键就是要怎么把那三个序列都编码成h5
+            # """这个keys里面已经包含了ground truth"""
             LoadH5(path_key="path", keys=keys),
             EnsureChannelFirstd(keys=keys, channel_dim="no_channel"),
             DivisiblePadd(keys=keys, k=32, mode="reflect"),
@@ -385,6 +385,7 @@ def get_2d_val_transform(keys):
     )
     return val_transforms
 
+# ======
 def get_2d_val_transform_diff(keys, use_edge=False):
     transforms_list = [
             # # 固定的transform
@@ -441,6 +442,7 @@ def get_test_transforms(keys):
     )
     return test_transforms
 
+# =====
 def get_2d_test_transform(keys, use_edge=False):
     transforms_list = [
         # # 固定的transform

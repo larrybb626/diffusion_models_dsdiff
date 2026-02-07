@@ -25,16 +25,16 @@ parser = argparse.ArgumentParser()
 # =============================偶尔改的参数=============================
 # dataset_type
 parser.add_argument('--config_file', type=str,
-                    default=r"/nas_3/LaiRuiBin/Changhai/code(lwx)/dsfr_diffusion/configs/train_config.yaml")
+                    default=r"/nas_3/LaiRuiBin/Changhai/code/dsfr_diffusion/configs/train_config.yaml")
 # # result&save
 # parser.add_argument('--dir_prefix', type=str, default=r'/home/user15/sharedata/')
-parser.add_argument('--dir_prefix', type=str, default=r'/data/newnas_1/LiuWenxi/Changhai/results/2025_0417/logs')
+# parser.add_argument('--dir_prefix', type=str, default=r'/data/newnas_1/LiuWenxi/Changhai/results/2025_0417/logs')
 
 # parser.add_argument('--result_path', type=str, default=r'newnas1/MJY_file/diffusion/train_result/')  # 结果保存地址
-parser.add_argument('--result_path', type=str, default=r'/data/newnas_1/LiuWenxi/Changhai/results/2025_0417/result')  # 结果保存地址
-
-parser.add_argument('--filepath_img', type=str,default=r'newnas/MJY_file/CE-MRI/PCa_new/CE-MRI-PCa-new-pre-320320-01norm')
-parser.add_argument('--h5_2d_img_dir', type=str, default=r'newnas/MJY_file/CE-MRI/PCa_new/h5_data_2d_pre_320320_01norm')
+# parser.add_argument('--result_path', type=str, default=r'/data/newnas_1/LiuWenxi/Changhai/results/2025_0417/result')  # 结果保存地址
+#
+# parser.add_argument('--filepath_img', type=str,default=r'newnas/MJY_file/CE-MRI/PCa_new/CE-MRI-PCa-new-pre-320320-01norm')
+# parser.add_argument('--h5_2d_img_dir', type=str, default=r'newnas/MJY_file/CE-MRI/PCa_new/h5_data_2d_pre_320320_01norm')
 
 args = parser.parse_args()
 

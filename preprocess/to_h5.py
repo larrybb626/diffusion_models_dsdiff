@@ -12,33 +12,43 @@ import SimpleITK as sitk
 import h5py
 import numpy as np
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
-    phase = ['train', 'val']
+    phase = ['train', 'test']
     for p in phase:
         print('go ', p)
         postfix = 'val' if p == 'val' else ('tr' if p == 'train' else 'ts')
-        save_dir = "/data/newnas_1/MJY_file/BraTS_dataset/data_pre_original/images_{}".format(postfix)
-        save_dir_h5 = "/data/newnas_1/MJY_file/BraTS_dataset/data_pre_h5_original/images_{}".format(postfix)
+        save_dir = "/nas_3/LaiRuiBin/Changhai/data/normalization/SSA/images_{}".format(postfix)
+        save_dir_h5 = "/nas_3/LaiRuiBin/Changhai/data/H5_new/SSA/images_{}".format(postfix)
         all_id = os.listdir(save_dir)
         for id_name in tqdm(all_id, desc="Processing {}".format(p)):
-            t1_path = os.path.join(save_dir, id_name, 't1.nii.gz')
-            t2_path = os.path.join(save_dir, id_name, 't2.nii.gz')
-            flair_path = os.path.join(save_dir, id_name, 'flair.nii.gz')
-            ce_path = os.path.join(save_dir, id_name, 'ce.nii.gz')
-            t1 = sitk.GetArrayFromImage(sitk.ReadImage(t1_path))
-            t2 = sitk.GetArrayFromImage(sitk.ReadImage(t2_path))
-            flair = sitk.GetArrayFromImage(sitk.ReadImage(flair_path))
-            ce = sitk.GetArrayFromImage(sitk.ReadImage(ce_path))
-            mask = np.zeros_like(t1)
+
+            t1_path = os.path.join(save_dir, id_name, 'F_Data1.nii.gz')
+            t2_path = os.path.join(save_dir, id_name, 'F_Data2.nii.gz')
+            S_Data1 = os.path.join(save_dir, id_name, 'S_Data1.nii.gz')
+            S_Data2 = os.path.join(save_dir, id_name, 'S_Data2.nii.gz')
+
+            F_Data1 = sitk.GetArrayFromImage(sitk.ReadImage(t1_path))
+            F_Data2 = sitk.GetArrayFromImage(sitk.ReadImage(t2_path))
+            S_Data1 = sitk.GetArrayFromImage(sitk.ReadImage(S_Data1))
+            S_Data2 = sitk.GetArrayFromImage(sitk.ReadImage(S_Data2))
+
             os.makedirs(os.path.join(save_dir_h5, id_name), exist_ok=True)
-            for layer in range(len(t1)):
+
+            for layer in range(len(F_Data1)):
                 with h5py.File(os.path.join(save_dir_h5, id_name, 'layer_{}.h5'.format(layer)), 'w') as f:
-                    f['t1'] = t1[layer]
-                    f['t2'] = t2[layer]
-                    f['flair'] = flair[layer]
-                    f['t1ce'] = ce[layer]
-                    f['mask'] = mask[layer]
+                    f['F_Data1'] = F_Data1[layer]
+                    # # ========= debug =========
+                    # a = F_Data1[5, :, :]
+                    # plt.imshow(a)
+                    # plt.show()
+                    # ========= debug =========
+                    f['F_Data2'] = F_Data2[layer]
+                    f['S_Data1'] = S_Data1[layer]
+                    f['S_Data2'] = S_Data2[layer]
+                    # f['mask'] = mask[layer]
                     f.close()
                 # 改用npz来存储
-                # np.savez(os.path.join(save_dir_h5, id_name, 'layer{}.npz'.format(layer)), t1=t1[layer], t2=t2[layer], flair=flair[layer], t1ce=ce[layer], mask=mask[layer])
+                # np.savez(os.path.join(save_dir_h5, id_name, 'layer{}.npz'.format(layer)), F_Data1=F_Data1[layer], F_Data2=F_Data2[layer], S_Data1=S_Data1[layer]
+                # , S_Data2=S_Data2[layer])

@@ -1,8 +1,8 @@
 # =========== normal setting ===========
 net_mode: ds_diff   # 记得修改噢
 Task_name: CE_MRI_synthesis
-Task_id: 146
-cuda_idx: 3
+Task_id: 0125
+cuda_idx: 0
 fold_K: 5
 fold_idx: 1
 vae_local_pretrained: False
@@ -10,7 +10,7 @@ vae_local_pretrained: False
 use_prostate_mask: False
 ckpt_name: 'checkpoint' # best checkpoint
 test_num:
-test_batch_size: 48
+test_batch_size: 1
 dataset_type: normal
 sampler_setting:
   sampler: "ddpm"
@@ -18,8 +18,8 @@ sampler_setting:
   sample_steps: 1000
   ddim_eta: 0
 # path
-dir_prefix:
-result_path:
+dir_prefix: "/nas_3/LaiRuiBin/Changhai"
+result_path: '/nas_3/LaiRuiBin/Changhai/results/2026_0125/result'
 filepath_img:
 h5_2d_img_dir:
 image_size: 320   #no use

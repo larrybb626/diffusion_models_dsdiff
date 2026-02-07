@@ -6,7 +6,7 @@
       <paths name="root@172.21.124.35:501 password (2)">
         <serverdata>
           <mappings>
-            <mapping deploy="/nas_3/LaiRuiBin/Changhai/code(lwx)/dsfr_diffusion" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/nas_3/LaiRuiBin/Changhai/code/dsfr_diffusion" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
