@@ -116,10 +116,10 @@ class DSDiffModel(DDPM, pl.LightningModule):
         self.keys = config.train_keys
         # =============================文件地址=======================================
         self.data_dir = config.h5_2d_img_dir
-        self.train_dir = os.path.join(self.data_dir, "images_tr")
+        self.train_dir = os.path.join(self.data_dir, "images_tr_256")
         self.val_dir = os.path.join(self.data_dir, "images_val") if self.config.data_name == 'BraTs' else self.train_dir
         # self.val_dir = self.train_dir
-        self.test_dir = os.path.join(self.data_dir, "images_ts")  # 记得改回去ts
+        self.test_dir = os.path.join(self.data_dir, "images_ts_256")  # 记得改回去ts
         self.template_dir = config.filepath_img
         self.result_dir = config.root_dir
         self.record_file = os.path.join(config.root_dir, "log_txt.txt")
