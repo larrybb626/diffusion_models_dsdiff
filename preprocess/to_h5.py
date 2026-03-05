@@ -15,12 +15,12 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
-    phase = ['train', 'test']
+    phase = ['test']
     for p in phase:
         print('go ', p)
         postfix = 'val' if p == 'val' else ('tr' if p == 'train' else 'ts')
-        save_dir = "/nas_3/LaiRuiBin/Changhai/data/normalization/SSA/images_{}".format(postfix)
-        save_dir_h5 = "/nas_3/LaiRuiBin/Changhai/data/H5_new/SSA/images_{}".format(postfix)
+        save_dir = "/nas_3/LaiRuiBin/Changhai/data/normalization/SSA/images_{}_256".format(postfix)
+        save_dir_h5 = "/nas_3/LaiRuiBin/Changhai/data/H5_new/SSA/images_{}_256".format(postfix)
         all_id = os.listdir(save_dir)
         for id_name in tqdm(all_id, desc="Processing {}".format(p)):
 
