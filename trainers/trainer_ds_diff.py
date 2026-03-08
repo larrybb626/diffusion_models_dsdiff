@@ -8,13 +8,12 @@ import SimpleITK as sitk
 import lightning.pytorch as pl
 import numpy as np
 import torch
-from deepspeed.ops.adam import DeepSpeedCPUAdam
 from monai.data import Dataset, CacheDataset, decollate_batch, DataLoader, pad_list_data_collate
 from monai.metrics import MAEMetric, SSIMMetric
 from sklearn.model_selection import KFold
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
-from torch.utils.data.distributed import DistributedSampler # 必须导入
+from torch.utils.data.distributed import DistributedSampler
 
 from Disc_diff.guided_diffusion.gaussian_diffusion import L1_Charbonnier_loss
 from Disc_diff.guided_diffusion.losses import discretized_gaussian_log_likelihood
@@ -276,58 +275,64 @@ class DSDiffModel(DDPM, pl.LightningModule):
 
     def train_dataloader(self):
         # DDP 必须使用 DistributedSampler
+        use_distributed = self.trainer.world_size > 1
         sampler = DistributedSampler(
             self.train_ds,
             num_replicas=self.trainer.world_size,
             rank=self.trainer.global_rank,
-            shuffle=True, # 只有这里设True
+            shuffle=True,
             drop_last=True
-        )
+        ) if use_distributed else None
         train_loader = DataLoader(
             self.train_ds,
             batch_size=self.train_batch_size,
-            shuffle=False, # 这里必须False，sampler会处理shuffle
+            shuffle=not use_distributed,
             sampler=sampler,
-            num_workers=0, # DDP建议先设为0，稳定后再调高 self.num_workers if sys.gettrace() is None else 1
+            num_workers=self.num_workers,
             pin_memory=True,
+            persistent_workers=self.num_workers > 0,
             collate_fn=pad_list_data_collate,
         )
         return train_loader
 
     def val_dataloader(self):
         # 验证集也建议加 DistributedSampler，防止重复验证
+        use_distributed = self.trainer.world_size > 1
         sampler = DistributedSampler(
             self.val_ds,
             num_replicas=self.trainer.world_size,
             rank=self.trainer.global_rank,
             shuffle=False,
             drop_last=False
-        )
+        ) if use_distributed else None
         val_loader = DataLoader(
             self.val_ds,
             batch_size=self.val_batch_size,
             shuffle=False,
             sampler=sampler,
-            num_workers=0, #self.num_workers
+            num_workers=self.num_workers,
             pin_memory=True,
+            persistent_workers=self.num_workers > 0,
             collate_fn=pad_list_data_collate,
         )
         return val_loader
 
     def predict_dataloader(self):
+        use_distributed = self.trainer.world_size > 1
         sampler = DistributedSampler(
             self.test_ds,
             num_replicas=self.trainer.world_size,
             rank=self.trainer.global_rank,
             shuffle=False
-        )
+        ) if use_distributed else None
         pred_loader = DataLoader(
             self.test_ds,
             batch_size=self.test_batch_size,
             shuffle=False,
             sampler=sampler,
-            num_workers=0, #self.num_workers
+            num_workers=self.num_workers,
             pin_memory=True,
+            persistent_workers=self.num_workers > 0,
             collate_fn=pad_list_data_collate,
         )
         return pred_loader
@@ -339,8 +344,7 @@ class DSDiffModel(DDPM, pl.LightningModule):
             print('Diffusion model optimizing logvar')
             params.append(self.logvar)
         # opt = torch.optim.AdamW(params, lr=lr)
-        print("Initializing DeepSpeedCPUAdam...")
-        opt = DeepSpeedCPUAdam(params, lr=lr)
+        opt = torch.optim.AdamW(params, lr=lr, betas=(self.beta1, self.beta2), fused=True)
         print("Setting up CosineAnnealingLR scheduler...")
         scheduler = [
             {
@@ -531,11 +535,12 @@ class DSDiffModel(DDPM, pl.LightningModule):
             loss_print_content = {}
             for loss_n, loss_v in outputs.items():
                 loss_print_content.update({loss_n: "%.4f" % loss_v.item()})
+            total_train_batches = self.trainer.num_training_batches
             print_content = "{} / {} {}  || Training cost: {}".format(batch_idx + 1,
-                                                                      len(self.train_dataloader()),
+                                                                      total_train_batches,
                                                                       loss_print_content,
                                                                       time_str)
-            printProgressBar(batch_idx, len(self.train_dataloader()) - 1, content=print_content)
+            printProgressBar(batch_idx, total_train_batches - 1, content=print_content)
 
         if self.use_ema:
             self.model_ema(self.model)

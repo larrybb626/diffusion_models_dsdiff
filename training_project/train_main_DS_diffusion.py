@@ -13,6 +13,7 @@ import torch
 from lightning.pytorch import seed_everything
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.profilers import AdvancedProfiler
+from lightning.pytorch.strategies import DeepSpeedStrategy
 from monai.utils import set_determinism
 from omegaconf import OmegaConf
 from core.JY_Network import JunyangFramework
@@ -100,11 +101,22 @@ if __name__ == "__main__":
     print(f"可用GPU数: {torch.cuda.device_count()}")
     print(f"配置使用GPU: {config.cuda_idx}")
     
+    device_ids = list(config.cuda_idx)
+    use_deepspeed = getattr(config, "use_deepspeed", len(device_ids) > 1)
+    if use_deepspeed:
+        strategy = DeepSpeedStrategy(
+            stage=2,
+            offload_optimizer=False,
+            logging_batch_size_per_gpu=config.train_batch_size,
+        )
+    else:
+        strategy = "auto"
+
     trainer = pl.Trainer(
         # default_root_dir=root_dir,
-        strategy="deepspeed_stage_2_offload",
+        strategy=strategy,
         accelerator='gpu',
-        devices=list(config.cuda_idx),
+        devices=device_ids,
         max_epochs=config.num_epochs,
         # max_epochs=1,
         check_val_every_n_epoch=config.val_step,
@@ -115,7 +127,7 @@ if __name__ == "__main__":
         deterministic="warn",
         enable_progress_bar=False,
         # =====dev option=====
-        # precision="16-mixed",
+        precision=getattr(config, "precision", "16-mixed"),
         num_sanity_val_steps=0,
         # fast_dev_run=1,
         # limit_train_batches=4,
