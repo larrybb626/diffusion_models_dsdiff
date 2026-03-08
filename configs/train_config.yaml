@@ -2,7 +2,7 @@
 net_mode: ds_diff  # 修改噢
 Task_name: CE_MRI_synthesis  # BraTs_synthesis/CE_MRI_synthesis
 Task_id: '0204'
-cuda_idx: [0,2]  # 使用全部 3 块 GPU，分散显存
+cuda_idx: [6]  # 单卡训练请只保留一个 GPU id
 fold_K: 5
 fold_idx: 1
 vae_local_pretrained: True
@@ -10,10 +10,12 @@ config_opt: '/nas_3/LaiRuiBin/Changhai/code/dsfr_diffusion/configs/v2-1-cddpm-ds
 model_type: unet  # unet or vit
 # =========== train setting ===========
 train_keys: [ "F_Data1", "F_Data2", "S_Data1", "S_Data2"]
-train_batch_size: 1   # 2
-val_batch_size: 1  # 16
-num_workers: 0  #16  <--- DDP模式下设为0，避免多进程冲突
+train_batch_size: 12
+val_batch_size: 5
+num_workers: 8
 checkpoint_epoch: 5
+use_deepspeed: False  # 单卡建议关闭 DeepSpeed，避免 CPU offload 变慢
+precision: "16-mixed"
 dataset_type: normal
 sampler_setting:
   sampler: "ddim"

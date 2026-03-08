@@ -2,9 +2,9 @@ import os
 import re
 import sys
 # 防止 Tokenizers 在 DDP 多进程中死锁
-os.environ['TOKENIZERS_PARALLELISM'] = 'false'
-# 优化显存碎片
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
+# os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+# # 优化显存碎片
+# os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import lightning.pytorch as pl
@@ -25,8 +25,8 @@ os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
 
 if __name__ == "__main__":
     # 打印调试信息，确认 DDP 环境
-    print(f"[DEBUG] CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'not set')}")
-    print(f"[DEBUG] System GPU Count: {torch.cuda.device_count()}")
+    # print(f"[DEBUG] CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'not set')}")
+    # print(f"[DEBUG] System GPU Count: {torch.cuda.device_count()}")
 
     Junyang = JunyangFramework("Junyang is the best!")
     config = Junyang.get_config(OmegaConf.load(config.config_file))
@@ -102,7 +102,7 @@ if __name__ == "__main__":
     
     trainer = pl.Trainer(
         # default_root_dir=root_dir,
-        strategy="deepspeed_stage_2_offload",
+        # strategy="ddp",
         accelerator='gpu',
         devices=list(config.cuda_idx),
         max_epochs=config.num_epochs,
