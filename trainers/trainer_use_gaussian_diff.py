@@ -9,6 +9,8 @@
 import copy
 import os
 import sys
+
+
 import time
 from collections import Counter
 
@@ -21,7 +23,7 @@ from monai.metrics import MAEMetric, SSIMMetric
 from sklearn.model_selection import KFold
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from Disc_diff.guided_diffusion.image_datasets import dataset_config, ProstateMRI_with_shannon_entropy_new
+from Disc_diff.guided_diffusion.image_datasets import dataset_config
 from Disc_diff.guided_diffusion.resample import create_named_schedule_sampler
 from Disc_diff.guided_diffusion.train_util import get_truncated_normal
 from ldm.models.diffusion.ddpm import DiffusionWrapper
@@ -46,7 +48,7 @@ class TryTrainerDiffusion(pl.LightningModule):
         super(TryTrainerDiffusion, self).__init__()
         self.config = config
         self.save_hyperparameters()
-        self.first_stage_key = "t1ce"
+        # self.first_stage_key = "t1ce"
         self.sampler_setting = config.sampler_setting
         # =============================dataset===================================
         self.val_ds = None
@@ -95,7 +97,9 @@ class TryTrainerDiffusion(pl.LightningModule):
         self.criterion_dict = None
         self.distance_type = config.disentangle_distance
         self.mae_metric = MAEMetric(reduction="mean", get_not_nans=False)
-        self.ssim_metric = SSIMMetric(spatial_dims=2)
+        self.ssim_metric = SSIMMetric(spatial_dims=2, data_range=2.0)
+        self.mae_metric_roi = MAEMetric(reduction="mean", get_not_nans=False)
+        self.ssim_metric_roi = SSIMMetric(spatial_dims=2, data_range=2.0)
         self.get_contrastive_loss = ContrastiveLoss(contrast_mode='all', contrastive_method='cl')
         self.contrast_lambda = config.contrast_lambda
         self.best_val_mae = 1000
@@ -126,11 +130,11 @@ class TryTrainerDiffusion(pl.LightningModule):
         self.keys = config.train_keys
         # =============================文件地址=======================================
         self.data_dir = config.h5_2d_img_dir
-        self.train_dir = os.path.join(self.data_dir, "images_tr")
-        self.val_dir = os.path.join(self.data_dir, "images_val") if getattr(self.config, "data_name",
+        self.train_dir = os.path.join(self.data_dir, "images_tr_256")
+        self.val_dir = os.path.join(self.data_dir, "images_val_256") if getattr(self.config, "data_name",
                                                                             "prostate") == 'BraTs' else self.train_dir
         # self.val_dir = self.train_dir
-        self.test_dir = os.path.join(self.data_dir, "images_ts")
+        self.test_dir = os.path.join(self.data_dir, "images_ts_256")
         self.template_dir = config.filepath_img
         self.result_dir = config.root_dir
         self.record_file = os.path.join(config.root_dir, "log_txt.txt")
@@ -166,18 +170,27 @@ class TryTrainerDiffusion(pl.LightningModule):
         self.get_dataset(val_dict, self.val_transforms, mode="val", dataset_type=self.dataset_type)
         self.get_dataset(test_dict, self.test_transforms, mode="test", dataset_type=self.dataset_type)
         if getattr(self.config, "shannon", False):
-            prefix = self.data_dir.split("newnas")[0]
+            prefix = self.data_dir.split("nas")[0]
             if self.config.data_name == 'prostate':
                 data_config = {"K": 5,
                                "random_state": 2024,
-                               "train_dir": prefix + "newnas_1/MJY_file/Prostate_dataset/",
+                               # "train_dir": prefix + "newnas_1/MJY_file/Prostate_dataset/",  # change
+                               "train_dir": prefix + "nas_2/MJY_file/Prostate_dataset/",
                                "fold": 1}
-            else:
+            elif self.config.data_name == 'BraTs':  # change 原来这里就直接else，因为只有两种数据集，两种情况
                 data_config = {"K": 5,
                                "random_state": 2024,
-                               "train_dir": prefix + "newnas_1/MJY_file/BraTs_dataset_npy/",
+                               # "train_dir": prefix + "newnas_1/MJY_file/BraTs_dataset_npy/",  # change
+                               "train_dir": prefix + "nas_2/MJY_file/BraTs_dataset_npy/",
                                "fold": 1}
-            self.shannon_Dataset = ProstateMRI_with_shannon_entropy_new(dataset_config(**data_config),self.train_transforms)
+            elif self.config.data_name == 'PET':  # change 原来这里就直接else，因为只有两种数据集，两种情况
+                data_config = {"K": 5,
+                               "random_state": 2024,
+                               # "train_dir": prefix + "newnas_1/MJY_file/BraTs_dataset_npy/",  # change
+                               "train_dir": prefix + "/",  # change 其实没有用到shannon的，但如果用到了，这里就会报错
+                               "fold": 1}
+
+            # self.shannon_Dataset = ProstateMRI_with_shannon_entropy_new(dataset_config(**data_config),self.train_transforms)
             self.shannon_data_dict = self.shannon_Dataset.data_dict
             self.lowest = min(self.shannon_data_dict.keys())
             self.highest = max(self.shannon_data_dict.keys())
@@ -320,6 +333,25 @@ class TryTrainerDiffusion(pl.LightningModule):
                 data_dict.append(new_data_dict)
         return data_dict
 
+    def get_data_dict_sample(self, id_list, data_dir, sampling_ratio):  # 我自己加了采样策略的，对病灶层和非病灶层进行采样
+        # 输入id的list获取数据字典
+        data_dict = []
+        for id_num in id_list:
+            layer_list = sorted(os.listdir(os.path.join(data_dir, id_num)))  # layer_0.h5之类的
+            # layer_list = [layer_list] * 4
+            roi_layers = [layer for layer in layer_list if "ROI" in layer]
+            non_roi_layers = [layer for layer in layer_list if "ROI" not in layer]
+            num_non_roi = max(1, int(len(non_roi_layers) * sampling_ratio))
+            rng = np.random.default_rng(seed=2024)  # 局部 RNG
+            selected_non_roi_layers = list(rng.choice(non_roi_layers, size=num_non_roi, replace=False))
+            selected_layers = roi_layers + selected_non_roi_layers
+
+            # for layer in layer_list:  # 头尾不要?
+            for layer in selected_layers:
+                new_data_dict = {"path": os.path.join(data_dir, id_num, layer), "txt": ""}
+                data_dict.append(new_data_dict)
+        return data_dict
+
     def get_val_data_dict(self, id_list):
         # 输入id的list获取数据字典
         data_dict = []
@@ -418,8 +450,9 @@ class TryTrainerDiffusion(pl.LightningModule):
         if getattr(self.config, "shannon", False) and self.global_step < 5000:
             batch = self.get_warmup_data(warm_up_iter=5000)
         x = batch["image"]
-        y = batch["t1ce"]
-        _cond = dict(t1=x[:, [0]], t2=x[:, [1]], dwi=x[:, [2]])
+        y = batch[self.keys[-1]]
+        # _cond = dict(t1=x[:, [0]], t2=x[:, [1]], dwi=x[:, [2]])
+        _cond = dict(F_Data1=x[:, [0]], F_Data2=x[:, [1]], S_Data1=x[:, [2]])
         if "edge" in batch.keys():
             edge = batch["edge"]
             _cond.update(edge=edge)
@@ -484,7 +517,7 @@ class TryTrainerDiffusion(pl.LightningModule):
         self
 
     def validation_step(self, batch, batch_idx):
-        images, labels = (batch["image"], batch["t1ce"])
+        images, labels = (batch["image"], batch[self.keys[-1]])
         _cond = dict(c_concat=[images])
         if "edge" in batch.keys():
             edge = batch["edge"]
@@ -567,7 +600,7 @@ class TryTrainerDiffusion(pl.LightningModule):
         print(self.sample_fn)
 
     def predict_step(self, batch, batch_idx: int, dataloader_idx: int = 0):
-        path, images, labels = (batch["path"], batch["image"], batch["t1ce"])
+        path, images, labels = (batch["path"], batch["image"], batch[self.keys[-1]])
         _cond = dict(c_concat=[images])
         if "edge" in batch.keys():
             edge = batch["edge"]
@@ -605,15 +638,16 @@ class TryTrainerDiffusion(pl.LightningModule):
         template_path = os.path.join(self.template_dir, os.path.basename(self.test_dir))
         for idx, id_num in enumerate(self.pred_dict.keys()):
             # all_slice = sorted(os.listdir(os.path.join(temp_dir, id_num)))
-            ce_name = "T1CE.nii.gz" if getattr(self.config, "data_name", 'prostate') == 'prostate' else "ce.nii.gz"
-            template_nii = sitk.ReadImage(os.path.join(template_path, id_num, ce_name))
+            pet_name = self.keys[-1] + ".nii.gz"
+            template_nii = sitk.ReadImage(os.path.join(template_path, id_num, pet_name))
             template_array = sitk.GetArrayFromImage(template_nii)
             pred_array = np.zeros_like(template_array)
             for slice_idx, slice_img in self.pred_dict[id_num].items():
                 pred_array[int(slice_idx)] = slice_img
             pred_nii = sitk.GetImageFromArray(pred_array)
             pred_nii.CopyInformation(template_nii)
-            sitk.WriteImage(pred_nii, os.path.join(self.pred_result_dir, "{}_pred.nii.gz".format(id_num)))
+            # sitk.WriteImage(pred_nii, os.path.join(self.pred_result_dir, "_{}_pred.nii.gz".format(id_num)))
+            sitk.WriteImage(pred_nii, os.path.join(self.pred_result_dir, "{}_{}_pred.nii.gz".format(self.config.Task_id, id_num)))
             printProgressBar(idx, len(self.pred_dict) - 1,
                              content="{}/{} making prediction nii......".format(idx + 1, len(self.pred_dict)))
         # print("remove temp file......")

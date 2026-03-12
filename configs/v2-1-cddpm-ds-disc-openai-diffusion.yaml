@@ -62,7 +62,7 @@ model:
         transformer_depth: 2
         context_dim: null
         legacy: False
-        use_edge: False
+#        use_edge: False
 
     ViT_config:
       target: UNet_DS_Diff.DiT_models.DiT_B_8

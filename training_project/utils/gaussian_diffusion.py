@@ -854,7 +854,7 @@ class GaussianDiffusion:
                 terms["loss"] *= self.num_timesteps
 
         elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE:
-            cond = [model_kwargs["t1"], model_kwargs["t2"], model_kwargs["dwi"]]
+            cond = [model_kwargs["F_Data1"], model_kwargs["F_Data2"], model_kwargs["S_Data1"]]
             if "edge" in model_kwargs.keys():
                 cond.append(model_kwargs["edge"])
             md_out = model(x_input, self._scale_timesteps(t), c_concat=cond)
