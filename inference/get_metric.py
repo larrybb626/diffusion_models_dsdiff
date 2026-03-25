@@ -15,17 +15,19 @@ os.environ["MKL_NUM_THREADS"] = "32"
 torch.set_num_threads(32)
 def main(config=None):
     # ==========path============
-    dir_prefix = sys.argv[0].split("/newnas")[0]
+    dir_prefix = "/"
     if config is None:
         config = OmegaConf.load("../configs/inference_config.yaml")
 
     config.filepath_img = os.path.join(dir_prefix, config.filepath_img)
     config.result_path = os.path.join(dir_prefix, config.result_path)
-    txt_path = os.path.join(dir_prefix, "newnas/MJY_file/CE-MRI", "peizhun_error.txt")
-    with open(txt_path, "r") as f:
-        # 读取全部内容
-        file_contents = f.read()
-    bad_list = file_contents.split("\n")
+
+    # txt_path = os.path.join(dir_prefix, "nas_3/", "peizhun_error.txt")
+    # with open(txt_path, "r") as f:
+    #     # 读取全部内容
+    #     file_contents = f.read()
+    # bad_list = file_contents.split("\n")
+
     Task_name = config.Task_name
     task_id = config.Task_id
     fold_idx = config.fold_idx
@@ -34,7 +36,7 @@ def main(config=None):
     # ===============model setting==============
     task_name = "{}_{}_{}_fold5-{}".format(Task_name, task_id, net_mode, fold_idx)
     result_path = config.result_path
-    gt_dir = os.path.join(config.filepath_img, "images_ts")
+    gt_dir = os.path.join(config.filepath_img, "images_ts_256")
     pred_dir = os.path.join(result_path, task_name, "pred_nii_" +
                             f"{config.sampler_setting.sampler}_{config.sampler_setting.sample_steps}_" +
                             f"eta{config.sampler_setting.ddim_eta}_{ckpt_name}")
@@ -50,55 +52,64 @@ def main(config=None):
     for idx, filename in enumerate(reversed(pred_list)):
         if not filename.endswith(".nii.gz"):
             continue
-        id_num = filename.split(".")[0].split("_")[0]
-        if id_num in bad_list:
-            continue
-        gt_file = os.path.join(gt_dir, id_num, "T1CE.nii.gz")
+        # id_num = filename.split(".")[0].split("_")[0]
+        # if id_num in bad_list:
+        #     continue
+        # 假设 filename 是 "0309_DOU RONG HUA_pred.nii.gz"
+        # 1. 先去掉尾部的后缀，变成 "0309_DOU RONG HUA"
+        name_without_suffix = filename.replace("_pred.nii.gz", "")
+
+        # 2. 按照第一个 "_" 进行分割，并取后半部分
+        # split("_", 1) 里的 1 表示只分割一次，这样即使病人名字里有下划线也不会被错误切断
+        # 结果 id_num 就是 "DOU RONG HUA"
+        id_num = name_without_suffix.split("_", 1)[1]
+
+        gt_file = os.path.join(gt_dir, id_num, "S_Data2.nii.gz")
         pred_file = os.path.join(pred_dir, filename)
-        mask_file = os.path.join(gt_dir, id_num, "CE_mask.nii.gz")
-        prostate_mask = os.path.join(gt_dir, id_num, "prostate.nii.gz")
+        # mask_file = os.path.join(gt_dir, id_num, "CE_mask.nii.gz")
+        # prostate_mask = os.path.join(gt_dir, id_num, "prostate.nii.gz")
         s = time.time()
         gt_img = sitk.GetArrayFromImage(sitk.ReadImage(gt_file))
         pred_img = sitk.GetArrayFromImage(sitk.ReadImage(pred_file))
-        mask_img = sitk.GetArrayFromImage(sitk.ReadImage(mask_file))
-        prostate_mask = sitk.GetArrayFromImage(sitk.ReadImage(prostate_mask))
+        # mask_img = sitk.GetArrayFromImage(sitk.ReadImage(mask_file))
+        # prostate_mask = sitk.GetArrayFromImage(sitk.ReadImage(prostate_mask))
         e = time.time()
         print("read time:", e - s)
-        prostate_slice_mask = np.zeros_like(mask_img)
-        prostate_slice_mask[np.nonzero(prostate_mask.sum(-1).sum(-1))[0]] = 1
-        prostate_slice_mask = mask_img * prostate_slice_mask
-        if config.use_prostate_mask:
-            mask_img = prostate_slice_mask
-            print('!!! use prostate mask !!!')
+        # prostate_slice_mask = np.zeros_like(mask_img)
+        # prostate_slice_mask[np.nonzero(prostate_mask.sum(-1).sum(-1))[0]] = 1
+        # prostate_slice_mask = mask_img * prostate_slice_mask
+        # if config.use_prostate_mask:
+        #     mask_img = prostate_slice_mask
+        #     print('!!! use prostate mask !!!')
         # get error matric
         # normalized root mean square error
-        nrmse_metric = nrmse(true_array=gt_img, pred_array=pred_img, mask=mask_img)
+        nrmse_metric = nrmse(true_array=gt_img, pred_array=pred_img)
         # symmetric mean absolute percent error
-        smape_metric = smape(true_array=gt_img, pred_array=pred_img, mask=mask_img)
+        smape_metric = smape(true_array=gt_img, pred_array=pred_img)
         # log accuracy ratio
-        logac_matric = logac(true_array=gt_img, pred_array=pred_img, mask=mask_img)
+        logac_matric = logac(true_array=gt_img, pred_array=pred_img)
         # median symmetric accuracy
-        medsymac_matric = medsymac(true_array=gt_img, pred_array=pred_img, mask=mask_img)
+        medsymac_matric = medsymac(true_array=gt_img, pred_array=pred_img)
         # get sim metrics
         # =======neighborhood cross correlation=======
         # cc_metric = cc_py(gt_file, pred_file, mask_file)
         cc_metric = 0
         # =======histogram mutual information=======
-        mi_metric = mi_py(gt_file, pred_file, mask_file)
+        mi_metric = mi_py(gt_file, pred_file, None)
         # mi_metric = nmi(true_array=gt_img,pred_array=pred_img,mask=mask_img)
         # =======ssim=======
-        ssim_metric = ssim_torch(true_array=gt_img, pred_array=pred_img, mask=mask_img)
+        ssim_metric = ssim_torch(true_array=gt_img, pred_array=pred_img)
         # =======psnr=======
-        psnr_metric = psnr(true_array=gt_img, pred_array=pred_img, mask=mask_img)
+        psnr_metric = psnr(true_array=gt_img, pred_array=pred_img)
         # =======lpips=======
-        # lpips=lpips_metric(true_array=gt_img, pred_array=pred_img, mask=mask_img)
+        # lpips=lpips_metric(true_array=gt_img, pred_array=pred_img)
         lpips = 0
-        # lpips = med_lpips_metric(true_array=gt_img, pred_array=pred_img, mask=mask_img)
+        # lpips = med_lpips_metric(true_array=gt_img, pred_array=pred_img)
         # =======fid=======
-        # fid = fid_torch(true_array=gt_img, pred_array=pred_img, mask=mask_img, compute=(idx == (len(pred_list) - 1)))
+        # fid = fid_torch(true_array=gt_img, pred_array=pred_img, compute=(idx == (len(pred_list) - 1)))
         fid = 0
         # =======vif=======
-        # vif = vif_torch(true_array=gt_img, pred_array=pred_img, mask=mask_img)
+        # vif = vif_torch(true_array=gt_img, pred_array=pred_img)
         vif = 0
         all_metric = [str(id_num), nrmse_metric, smape_metric, logac_matric, medsymac_matric, cc_metric, mi_metric,
                       ssim_metric, lpips, fid, psnr_metric]

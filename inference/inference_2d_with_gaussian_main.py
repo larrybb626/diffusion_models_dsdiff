@@ -2,6 +2,16 @@ import os.path
 import re
 import sys
 
+current_file_path = os.path.abspath(__file__)
+# 2. 获取当前脚本所在的目录 (inference 文件夹)
+current_dir = os.path.dirname(current_file_path)
+# 3. 核心修改：锁定真正的项目根目录 (即 inference 的上一级 dsfr_diffusion)
+project_root = os.path.dirname(current_dir)
+
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+print(f"==== 项目根目录已锁定为: {project_root} ====")
+
 import lightning.pytorch as pl
 import torch
 from lightning.pytorch import seed_everything
@@ -15,7 +25,7 @@ from trainers.trainer_use_gaussian_diff import TryTrainerDiffusion
 
 if __name__ == "__main__":
     torch.set_float32_matmul_precision('high')
-    config = OmegaConf.load("../configs/inference_config.yaml")
+    config = OmegaConf.load(f"{project_root}/configs/inference_config.yaml")
     torch.multiprocessing.set_sharing_strategy('file_system')
     set_determinism(config["seed"])
     seed_everything(config["seed"], workers=True)
@@ -24,7 +34,8 @@ if __name__ == "__main__":
     task_id = config.Task_id
     fold_idx = config.fold_idx
     ckpt_name = config.ckpt_name
-    dir_prefix = sys.argv[0].split("/newnas")[0]
+    # dir_prefix = sys.argv[0].split("/nas")[0]
+    dir_prefix = "/"
     config.result_path = os.path.join(dir_prefix, config.result_path)
     # ===============model setting==============
     task_name = "{}_{}_{}_fold5-{}".format(Task_name, task_id, config.net_mode, fold_idx)
@@ -53,13 +64,15 @@ if __name__ == "__main__":
         model = DDPMModel.load_from_checkpoint(ckpt_path,
                                                # map_location={"cuda:1":"cuda:0"}
                                                )
-    elif config.net_mode == "ds_diff":
+    elif config.net_mode == "ds_diff_gaussian":
         model = TryTrainerDiffusion.load_from_checkpoint(ckpt_path,
                                                          map_location="cuda:{}".format(int(config.cuda_idx))
                                                          )
-    model.pred_result_dir = os.path.join(dir_prefix, "newnas_1", model.pred_result_dir.split('newnas_1/')[-1] + "_" +
-                                         f"{config.sampler_setting.sampler}_{config.sampler_setting.sample_steps}_" +
-                                         f"eta{config.sampler_setting.ddim_eta}_{ckpt_name.split('.')[0]}")
+    suffix = f"_{config.sampler_setting.sampler}_{config.sampler_setting.sample_steps}_eta{config.sampler_setting.ddim_eta}_{ckpt_name.split('.')[0]}"
+    model.pred_result_dir = os.path.join(dir_prefix, "nas_3", model.pred_result_dir.split('nas_3/')[-1] + suffix)
+    # model.pred_result_dir = os.path.join(dir_prefix, "nas_3", model.pred_result_dir.split('nas_3/')[-1] + "_" +
+    #                                      f"{config.sampler_setting.sampler}_{config.sampler_setting.sample_steps}_" +
+    #                                      f"eta{config.sampler_setting.ddim_eta}_{ckpt_name.split('.')[0]}")
     model.sampler_setting = config.sampler_setting
     model.test_batch_size = config.test_batch_size
     model.test_num = config.test_num
@@ -67,8 +80,8 @@ if __name__ == "__main__":
     if not os.path.exists(model.pred_result_dir):
         os.makedirs(model.pred_result_dir)
     # ===============以防万一地址变动================
-    if dir_prefix != model.data_dir.split("/newnas")[0]:
-        prefix_len = len(model.data_dir.split("newnas")[0])
+    if dir_prefix != model.data_dir.split("/nas_3")[0]:
+        prefix_len = len(model.data_dir.split("nas_3")[0])
         # root_dir = os.path.join(dir_prefix,"newnas_1/MJY_file/CE-MRI/train_result/", task_name)
         model.data_dir = os.path.join(dir_prefix, model.data_dir[prefix_len:])
         model.train_dir = os.path.join(dir_prefix, model.train_dir[prefix_len:])

@@ -91,7 +91,7 @@ class TryTrainerDiffusion(pl.LightningModule):
         self.fold_K = config.fold_K
         self.fold_idx = config.fold_idx
         # ================================net====================================
-        input_channels = len(config.train_keys)
+        input_channels = len(config.train_keys[-1])
         output_channel = 1
         # ================================loss&metric============================
         self.criterion_dict = None
