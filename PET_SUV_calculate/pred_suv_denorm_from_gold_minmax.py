@@ -144,6 +144,16 @@ def pet_to_suv(data: List[str], pet: np.ndarray, use_rescale: bool) -> np.ndarra
     return (pet_f * suv_bw_scale_factor).astype(np.float32)
 
 
+def suv_stats(arr: np.ndarray) -> Dict[str, float]:
+    pos = arr[arr > 0]
+    return {
+        "SUV_Mean": float(np.mean(pos)) if pos.size else 0.0,
+        "SUV_Max": float(np.max(arr)),
+        "SUV_Min_Positive": float(np.min(pos)) if pos.size else 0.0,
+        "SUV_Std_Positive": float(np.std(pos)) if pos.size else 0.0,
+    }
+
+
 def default_out_excel(pred_path: str, out_excel: str) -> str:
     if out_excel:
         return out_excel
@@ -202,6 +212,7 @@ def main() -> None:
         raise RuntimeError(f"No pred files found in: {args.pred_path}")
 
     rows: List[Dict[str, object]] = []
+    error_rows: List[Dict[str, object]] = []
     for idx, pred_file in enumerate(pred_files, start=1):
         pred_name = os.path.basename(pred_file)
         patient_id = parse_patient_id(pred_name, args.task_id)
@@ -247,8 +258,12 @@ def main() -> None:
                 params["RescaleIntercept"],
             ]
             suv = pet_to_suv(data=data, pet=pred_denorm, use_rescale=(not args.no_rescale))
+            pred_stats = suv_stats(suv)
 
-            pos = suv[suv > 0]
+            gold_arr = sitk.GetArrayFromImage(sitk.ReadImage(gold_nii)).astype(np.float32)
+            gold_suv = pet_to_suv(data=data, pet=gold_arr, use_rescale=(not args.no_rescale))
+            gold_stats = suv_stats(gold_suv)
+
             row.update(
                 {
                     "GoldNii": gold_nii,
@@ -259,16 +274,26 @@ def main() -> None:
                     "PredDenormMax": float(pred_denorm.max()),
                     "GoldMin": float(min_v),
                     "GoldMax": float(max_v),
-                    "SUV_Mean": float(np.mean(pos)) if pos.size else 0.0,
-                    "SUV_Max": float(np.max(suv)),
-                    "SUV_Min_Positive": float(np.min(pos)) if pos.size else 0.0,
-                    "SUV_Std_Positive": float(np.std(pos)) if pos.size else 0.0,
+                    "SUV_Mean": pred_stats["SUV_Mean"],
+                    "SUV_Max": pred_stats["SUV_Max"],
+                    "SUV_Min_Positive": pred_stats["SUV_Min_Positive"],
+                    "SUV_Std_Positive": pred_stats["SUV_Std_Positive"],
                     "Status": "OK",
                     "Error": "",
                 }
             )
             for k in META_KEYS:
                 row[k] = str(params.get(k, ""))
+
+            error_rows.append(
+                {
+                    "PatientID": patient_id,
+                    "SE_SUV_Mean": (pred_stats["SUV_Mean"] - gold_stats["SUV_Mean"]) ** 2,
+                    "SE_SUV_Max": (pred_stats["SUV_Max"] - gold_stats["SUV_Max"]) ** 2,
+                    "SE_SUV_Min_Positive": (pred_stats["SUV_Min_Positive"] - gold_stats["SUV_Min_Positive"]) ** 2,
+                    "SE_SUV_Std_Positive": (pred_stats["SUV_Std_Positive"] - gold_stats["SUV_Std_Positive"]) ** 2,
+                }
+            )
         except Exception as exc:
             row["Error"] = str(exc)
 
@@ -306,9 +331,40 @@ def main() -> None:
     os.makedirs(os.path.dirname(out_excel) or ".", exist_ok=True)
     df.to_excel(out_excel, index=False)
 
+    error_out_excel = out_excel.replace(".xlsx", "_error.xlsx")
+    err_cols = [
+        "PatientID",
+        "SE_SUV_Mean",
+        "SE_SUV_Max",
+        "SE_SUV_Min_Positive",
+        "SE_SUV_Std_Positive",
+    ]
+    df_err = pd.DataFrame(error_rows)
+    if not df_err.empty:
+        mse_row = {
+            "PatientID": "MSE",
+            "SE_SUV_Mean": float(df_err["SE_SUV_Mean"].mean()),
+            "SE_SUV_Max": float(df_err["SE_SUV_Max"].mean()),
+            "SE_SUV_Min_Positive": float(df_err["SE_SUV_Min_Positive"].mean()),
+            "SE_SUV_Std_Positive": float(df_err["SE_SUV_Std_Positive"].mean()),
+        }
+        rmse_row = {
+            "PatientID": "RMSE",
+            "SE_SUV_Mean": float(np.sqrt(mse_row["SE_SUV_Mean"])),
+            "SE_SUV_Max": float(np.sqrt(mse_row["SE_SUV_Max"])),
+            "SE_SUV_Min_Positive": float(np.sqrt(mse_row["SE_SUV_Min_Positive"])),
+            "SE_SUV_Std_Positive": float(np.sqrt(mse_row["SE_SUV_Std_Positive"])),
+        }
+        df_err = pd.concat([df_err, pd.DataFrame([mse_row, rmse_row])], ignore_index=True)
+    else:
+        df_err = pd.DataFrame(columns=err_cols)
+    df_err = df_err[err_cols]
+    df_err.to_excel(error_out_excel, index=False)
+
     ok = int((df["Status"] == "OK").sum())
     fail = int((df["Status"] == "FAIL").sum())
     print(f"[DONE] Excel saved: {out_excel}")
+    print(f"[DONE] Error Excel saved: {error_out_excel}")
     print(f"[DONE] OK={ok}, FAIL={fail}")
 
 
